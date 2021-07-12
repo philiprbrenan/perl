@@ -187,140 +187,169 @@ END
    }
  }
 
+sub test_b($)                                                                   #P Check that we have an opening bracket
+ {my ($item) = @_;                                                              # Item to test
+  !ref($item) and substr($item, 0, 1) eq 'b'
+ }
+
+sub test_B($)                                                                   #P Check that we have an closing bracket
+ {my ($item) = @_;                                                              # Item to test
+  !ref($item) and substr($item, 0, 1) eq 'B'
+ }
+
+sub test_p($)                                                                   #P Check that we have a prefix operator
+ {my ($item) = @_;                                                              # Item to test
+  !ref($item) and substr($item, 0, 1) eq 'p'
+ }
+
+sub test_s($)                                                                   #P Check that we have a semi-colon
+ {my ($item) = @_;                                                              # Item to test
+  !ref($item) and substr($item, 0, 1) eq 's'
+ }
+
+sub test_v($)                                                                   #P Check that we have a variable
+ {my ($item) = @_;                                                              # Item to test
+  !ref($item) and substr($item, 0, 1) eq 'v'
+ }
+
+sub test_ads($)                                                                 #P Check that we have a prefix operator
+ {my ($item) = @_;                                                              # Item to test
+  !ref($item) and index('ads',  substr($item, 0, 1)) > -1
+ }
+
+sub test_bpsv($)                                                                #P Check that we have an open bracket, prefix operator, semi-colon or variable
+ {my ($item) = @_;                                                              # Item to test
+  !ref($item) and index('bpsv', substr($item, 0, 1)) > -1
+ }
+
+sub test_sb($)                                                                  #P Check that we have a semi colon followed by a open bracket
+ {my ($item) = @_;                                                              # Item to test
+  !ref($item) and index('sb',   substr($item, 0, 1)) > -1
+ }
+
+sub reduce($)                                                                   #P Convert the longest possible expression on top of the stack into a term
+ {my ($s) = @_;                                                                 # Stack
+  #lll "TTTT ", scalar(@s), "\n", dump([@s]);
+
+  if (@$s >= 3)                                                                 # Go for term infix-operator term
+   {my ($l, $d, $r) = ($$s[-3], $$s[-2], $$s[-1]);                              # Left dyad right
+    if (ref($l) and ref($r) and test_ads($d))                                   # Parse out infix operator expression
+     {pop  @$s for 1..3;
+      push @$s, new $d, $l, $r;
+      return 1;
+     }
+    if (test_b($l) and test_B($r) and ref($d))                                  # Parse parenthesized term
+     {pop  @$s for 1..3;
+      push @$s, $d;
+      return 1;
+     }
+   }
+
+  if (@$s >= 2)                                                                 # Convert an empty pair of parentheses to an empty term
+   {my ($l, $r) = ($$s[-2], $$s[-1]);
+    if (test_b($l) and test_B($r))                                              # Empty pair of parentheses
+     {pop  @$s for 1..2;
+      push @$s, new 'empty1';
+      return 1;
+     }
+    if (test_s($l) and test_B($r))                                              # Semi-colon, close implies remove unneeded semi
+     {pop  @$s for 1..2;
+      push @$s, $r;
+      return 1;
+     }
+    if (test_p($l) and ref($r))                                                 # Prefix, term
+     {pop  @$s for 1..2;
+      push @$s, new $l, $r;
+      return 1;
+     }
+   }
+
+  undef                                                                         # No move made
+ }
+
 sub parse(@)                                                                    # Parse an expression.
  {my (@expression) = @_;                                                        # Expression to parse
 
-  my @s;                                                                        # Stack
-
-  my sub test($$)                                                               # Check the type of an item in the stack
-   {my ($item, $type) = @_;                                                     # Item to test, expected type of item
-    return index($type, 't') > -1 if ref $item;                                 # Term
-    index($type, substr($item, 0, 1)) > -1                                      # Something other than a term defines its type by its first letter
-   }
-
-  my sub reduce()                                                               # Convert the longest possible expression on top of the stack into a term
-   {#lll "TTTT ", scalar(@s), "\n", dump([@s]);
-
-    if (@s >= 3)                                                                # Go for term infix-operator term
-     {my ($r, $d, $l) = reverse @s;
-      if (test($l, 't') and test($r, 't') and test($d, 'ads'))                  # Parse out infix operator expression
-       {pop  @s for 1..3;
-        push @s, new $d, $l, $r;
-        return 1;
-       }
-      if (test($l, 'b') and test($r, 'B') and test($d, 't'))                    # Parse parenthesized term
-       {pop  @s for 1..3;
-        push @s, $d;
-        return 1;
-       }
-     }
-
-    if (@s >= 2)                                                                # Convert an empty pair of parentheses to an empty term
-     {my ($r, $l) = reverse @s;
-      if (test($l, 'b')  and test($r, 'B'))                                     # Empty pair of parentheses
-       {pop  @s for 1..2;
-        push @s, new 'empty1';
-        return 1;
-       }
-      if (test($l,'s') and test($r, 'B'))                                       # Semi-colon, close implies remove unneeded semi
-       {pop  @s for 1..2;
-        push @s, $r;
-        return 1;
-       }
-      if (test($l,'p') and test($r, 't'))                                       # Prefix, term
-       {pop  @s for 1..2;
-        push @s, new $l, $r;
-        return 1;
-       }
-     }
-
-    undef                                                                       # No move made
-   };
+  my $s = [];                                                                   # Stack
 
   for my $i(keys @expression)                                                   # Each input element
    {my $e = $expression[$i];
 
-    if (!@s)                                                                    # Empty stack
+    my sub check($)                                                             #P Check that the top of the stack has one of the specified elements
+     {my ($types) = @_;                                                         # Possible types to match
+      return 1 if index($types, type($$s[-1])) > -1;                            # Check type allowed
+      unexpected $$s[-1], $e, $i;                                               # Complain about an unexpected type
+     };
+
+    if (!@$s)                                                                   # Empty stack
      {my $E = expandElement $e;
-      die <<END =~ s(\n) ( )gsr =~ s(\s+\Z) (\n)gsr if !test($e, 'bpsv');
+      die <<END =~ s(\n) ( )gsr =~ s(\s+\Z) (\n)gsr if !test_bpsv($e);
 Expression must start with 'opening parenthesis', 'prefix
 operator', 'semi-colon' or 'variable', not $E.
 END
-      if    (test($e, 'v'))                                                     # Single variable
-       {@s = (new $e);
+      if    (test_v($e))                                                        # Single variable
+       {@$s = (new $e);
        }
-      elsif (test($e, 's'))                                                     # Semi
-       {@s = (new('empty4'), $e);
+      elsif (test_s($e))                                                        # Semi
+       {@$s = (new('empty4'), $e);
        }
       else                                                                      # Not semi or variable
-       {@s = ($e);
+       {@$s = ($e);
        }
       next;
-     }
-
-    my sub check($)                                                             # Check that the top of the stack has one of the specified elements
-     {my ($types) = @_;                                                         # Possible types to match
-      return 1 if index($types, type($s[-1])) > -1;                             # Check type allowed
-      unexpected $s[-1], $e, $i;                                                # Complain about an unexpected type
-     }
-
-    my sub prev($)                                                              # Check that the second item on the stack contains one of the expected items
-     {my ($types) = @_;                                                         # Possible types to match
-      return undef unless @s >= 2;                                              # Stack not deep enough so cannot contain any of the specified types
-      return 1 if index($types, type($s[-2])) > -1;
-      undef
      }
 
     my %action =                                                                # Action on each lexical item
      (a => sub                                                                  # Assign
        {check("t");
-        push @s, $e;
+        push @$s, $e;
        },
 
       b => sub                                                                  # Open
-       {check("bdp");
-        push @s, $e;
+       {check("bdps");
+        push @$s, $e;
        },
 
       B => sub                                                                  # Closing parenthesis
        {check("bst");
-        1 while reduce;
-        push @s, $e;
-        1 while reduce;
+        1 while reduce $s;
+        push @$s, $e;
+        1 while reduce $s;
         check("bst");
        },
 
       d => sub                                                                  # Infix but not assign or semi-colon
        {check("t");
-        push @s, $e;
+        push @$s, $e;
        },
 
       p => sub                                                                  # Prefix
        {check("bdp");
-        push @s, $e;
+        push @$s, $e;
        },
 
       q => sub                                                                  # Post fix
        {check("t");
-        if (test($s[-1], 't'))                                                  # Post fix operator applied to a term
-         {my $p = pop @s;
-          push @s, new $e, $p;
+        if (ref $$s[-1])                                                        # Post fix operator applied to a term
+         {my $p = pop @$s;
+          push @$s, new $e, $p;
          }
        },
 
       s => sub                                                                  # Semi colon
        {check("bst");
-        push @s, new 'empty5' if test($s[-1], "sb");                            # Insert an empty element between two consecutive semicolons
-        1 while reduce;
-        push @s, $e;
+        push @$s, new 'empty5' if test_sb($$s[-1]);                             # Insert an empty element between two consecutive semicolons
+        1 while reduce $s;
+        push @$s, $e;
        },
 
       v => sub                                                                  # Variable
        {check("abdps");
-        push @s, new $e;
-        while(prev("p"))
-         {my ($l, $r) = splice @s, -2;
-          push @s, new $l, $r;
+        push @$s, new $e;
+
+        while(@$s >= 2 and 'p' eq type($$s[-2]))                                # Check for preceding prefix operators
+         {my ($l, $r) = splice @$s, -2;
+          push @$s, new $l, $r;
          }
        },
      );
@@ -328,10 +357,10 @@ END
     $action{substr($e, 0, 1)}->();                                              # Dispatch the action associated with the lexical item
    }
 
-  pop @s while @s > 1 and $s[-1] =~ m(s);                                       # Remove any trailing semi colons
-  1 while reduce;                                                               # Final reductions
+  pop @$s while @$s > 1 and $$s[-1] =~ m(s);                                    # Remove any trailing semi colons
+  1 while reduce $s;                                                            # Final reductions
 
-  if (@s != 1)                                                                  # Incomplete expression
+  if (@$s != 1)                                                                 # Incomplete expression
    {my $E = expected $expression[-1];
     die "Incomplete expression. $E.\n";
    }
@@ -344,7 +373,7 @@ $E after final $C.
 END
    }
 
-  $s[0]                                                                         # The resulting parse tree
+  $$s[0]                                                                        # The resulting parse tree
  } # parse
 
 #D1 Print                                                                       # Print a parse tree to make it easy to visualize its structure.
@@ -486,7 +515,7 @@ END
 Create a parse tree from an array of terms representing an expression.
 
 
-Version 20210703.
+Version 20210704.
 
 
 The following sections describe the methods in each functional area of this
@@ -498,6 +527,19 @@ module.  For an alphabetic listing of all methods by name see L<Index|/Index>.
 
 Create a parse tree from an array of terms representing an expression.
 
+=head2 LexicalStructure()
+
+Return the lexical codes and their relationships in a data structure so this information can be used in other contexts.
+
+
+B<Example:>
+
+
+  
+  is_deeply LexicalStructure,                                                       # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+  
+
 =head2 syntaxError(@expression)
 
 Check the syntax of an expression without parsing it. Die with a helpful message if an error occurs.  The helpful message will be slightly different from that produced by L<parse|https://en.wikipedia.org/wiki/Parsing> as it cannot contain information from the non existent parse tree.
@@ -508,8 +550,8 @@ Check the syntax of an expression without parsing it. Die with a helpful message
 B<Example:>
 
 
-  if (1)
-
+  if (1)                                                                          
+  
    {eval {syntaxError(qw(v1 p1))};  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok -1 < index $@, <<END =~ s({a}) ( )gsr;
@@ -518,7 +560,7 @@ B<Example:>
   'dyadic operator', 'semi-colon' or 'suffix operator'.
   END
    }
-
+  
 
 =head2 parse(@expression)
 
@@ -530,10 +572,10 @@ Parse an expression.
 B<Example:>
 
 
-
+  
    my @e = qw(b b p2 p1 v1 q1 q2 B d3 b p4 p3 v2 q3 q4 d4 p6 p5 v3 q5 q6 B s B s);
-
-
+  
+  
    is_deeply parse(@e)->flat, <<END;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       d3
@@ -544,18 +586,18 @@ B<Example:>
    v1    p3    p5
          v2    v3
   END
-
+  
   }
-
+  
   ok T [qw(b b v1 B s B s)], <<END;
    v1
   END
-
+  
   ok T [qw(v1 q1 s)], <<END;
    q1
    v1
   END
-
+  
   ok T [qw(b b v1 q1 q2 B q3 q4 s B q5 q6  s)], <<END;
    q6
    q5
@@ -565,20 +607,20 @@ B<Example:>
    q1
    v1
   END
-
+  
   ok T [qw(p1 p2 b v1 B)], <<END;
    p1
    p2
    v1
   END
-
+  
   ok T [qw(v1 d1 p1 p2 v2)], <<END;
       d1
    v1    p1
          p2
          v2
   END
-
+  
   ok T [qw(p1 p2 b p3 p4 b p5 p6 v1 d1 v2 q1 q2 B q3 q4 s B q5 q6  s)], <<END;
          q6
          q5
@@ -593,7 +635,7 @@ B<Example:>
    p6    q1
    v1    v2
   END
-
+  
   ok T [qw(p1 p2 b p3 p4 b p5 p6 v1 a1 v2 q1 q2 B q3 q4 s B q5 q6  s)], <<END;
          q6
          q5
@@ -608,93 +650,93 @@ B<Example:>
    p6    q1
    v1    v2
   END
-
+  
   ok T [qw(b v1 B d1 b v2 B)], <<END;
       d1
    v1    v2
   END
-
+  
   ok T [qw(b v1 B q1 q2 d1 b v2 B)], <<END;
       d1
    q2    v2
    q1
    v1
   END
-
+  
   ok E <<END;
   a
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'assignment operator': a.
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'assignment operator': a.
   END
-
+  
   ok E <<END;
   B
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'closing parenthesis': B.
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'closing parenthesis': B.
   END
-
+  
   ok E <<END;
   d1
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'dyadic operator': d1.
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'dyadic operator': d1.
   END
-
+  
   ok E <<END;
   p1
   Expected: 'opening parenthesis', 'prefix operator' or 'variable' after final 'prefix operator': p1.
   Expected: 'opening parenthesis', 'prefix operator' or 'variable' after final 'prefix operator': p1.
   END
-
+  
   ok E <<END;
   q1
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'suffix operator': q1.
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'suffix operator': q1.
   END
-
+  
   ok E <<END;
   s
-
-
+  
+  
   END
-
+  
   ok E <<END;
   v1
-
-
+  
+  
   END
-
+  
   ok E <<END;
   b v1
   Incomplete expression. Expected: 'assignment operator', 'closing parenthesis', 'dyadic operator', 'semi-colon' or 'suffix operator'.
   No closing parenthesis matching b at position 1.
   END
-
+  
   ok E <<END;
   b v1 B B
   Unexpected 'closing parenthesis': B following 'closing parenthesis': B at position 4. Expected: 'assignment operator', 'closing parenthesis', 'dyadic operator', 'semi-colon' or 'suffix operator'.
   Unexpected closing parenthesis B at position 4. Expected: 'assignment operator', 'closing parenthesis', 'dyadic operator', 'semi-colon' or 'suffix operator'.
   END
-
+  
   ok E <<END;
   v1 d1 d2 v2
   Unexpected 'dyadic operator': d2 following 'dyadic operator': d1 at position 3. Expected: 'assignment operator', 'opening parenthesis', 'prefix operator' or 'variable'.
   Unexpected 'dyadic operator': d2 following 'dyadic operator': d1 at position 3. Expected: 'assignment operator', 'opening parenthesis', 'prefix operator' or 'variable'.
   END
-
+  
   ok E <<END;
   v1 p1
   Unexpected 'prefix operator': p1 following term ending at position 2. Expected: 'assignment operator', 'closing parenthesis', 'dyadic operator', 'semi-colon' or 'suffix operator'.
   Unexpected 'prefix operator': p1 following 'variable': v1 at position 2. Expected: 'assignment operator', 'closing parenthesis', 'dyadic operator', 'semi-colon' or 'suffix operator'.
   END
-
-  if (1)
+  
+  if (1)                                                                          
    {eval {syntaxError(qw(v1 p1))};
     ok -1 < index $@, <<END =~ s({a}) ( )gsr;
   Unexpected 'prefix operator': p1 following 'variable': v1 at position 2.
   Expected: 'assignment operator', 'closing parenthesis',
   'dyadic operator', 'semi-colon' or 'suffix operator'.
   END
-
+  
 
 =head1 Print
 
@@ -711,10 +753,10 @@ Print the terms in the expression as a tree from left right to make it easier to
 B<Example:>
 
 
-
+  
    my @e = qw(v1 a2 v3 d4 v5 s6 v8 a9 v10);
-
-
+  
+  
    is_deeply parse(@e)->flat, <<END;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
                   s6
@@ -723,7 +765,7 @@ B<Example:>
          v3    v5
   END
   }
-
+  
   ok T [qw(v1 a2 v3 s s s  v4 a5 v6 s s)], <<END;
                                          s
                               s            empty5
@@ -732,52 +774,52 @@ B<Example:>
       a2      empty5
    v1    v3
   END
-
+  
   ok T [qw(b B)], <<END;
    empty1
   END
-
+  
   ok T [qw(b b B B)], <<END;
    empty1
   END
-
+  
   ok T [qw(b b v1 B B)], <<END;
    v1
   END
-
+  
   ok T [qw(b b v1 a2 v3 B B)], <<END;
       a2
    v1    v3
   END
-
+  
   ok T [qw(b b v1 a2 v3 d4 v5 B B)], <<END;
       a2
    v1       d4
          v3    v5
   END
-
+  
   ok T [qw(p1 v1)], <<END;
    p1
    v1
   END
-
+  
   ok T [qw(p2 p1 v1)], <<END;
    p2
    p1
    v1
   END
-
+  
   ok T [qw(v1 q1)], <<END;
    q1
    v1
   END
-
+  
   ok T [qw(v1 q1 q2)], <<END;
    q2
    q1
    v1
   END
-
+  
   ok T [qw(p2 p1 v1 q1 q2)], <<END;
    q2
    q1
@@ -785,7 +827,7 @@ B<Example:>
    p1
    v1
   END
-
+  
   ok T [qw(p2 p1 v1 q1 q2 d3 p4 p3 v2 q3 q4)], <<END;
       d3
    q2    q4
@@ -794,7 +836,7 @@ B<Example:>
    p1    p3
    v1    v2
   END
-
+  
   ok T [qw(p2 p1 v1 q1 q2 d3 p4 p3 v2 q3 q4  d4 p6 p5 v3 q5 q6 s)], <<END;
       d3
    q2       d4
@@ -804,22 +846,22 @@ B<Example:>
    v1    p3    p5
          v2    v3
   END
-
+  
   ok T [qw(b s B)], <<END;
    empty5
   END
-
+  
   ok T [qw(b s s B)], <<END;
           s
    empty5   empty5
   END
-
-
-  if (1) {
-
+  
+  
+  if (1) {                                                                        
+  
    my @e = qw(b b p2 p1 v1 q1 q2 B d3 b p4 p3 v2 q3 q4 d4 p6 p5 v3 q5 q6 B s B s);
-
-
+  
+  
    is_deeply parse(@e)->flat, <<END;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       d3
@@ -830,18 +872,18 @@ B<Example:>
    v1    p3    p5
          v2    v3
   END
-
+  
   }
-
+  
   ok T [qw(b b v1 B s B s)], <<END;
    v1
   END
-
+  
   ok T [qw(v1 q1 s)], <<END;
    q1
    v1
   END
-
+  
   ok T [qw(b b v1 q1 q2 B q3 q4 s B q5 q6  s)], <<END;
    q6
    q5
@@ -851,20 +893,20 @@ B<Example:>
    q1
    v1
   END
-
+  
   ok T [qw(p1 p2 b v1 B)], <<END;
    p1
    p2
    v1
   END
-
+  
   ok T [qw(v1 d1 p1 p2 v2)], <<END;
       d1
    v1    p1
          p2
          v2
   END
-
+  
   ok T [qw(p1 p2 b p3 p4 b p5 p6 v1 d1 v2 q1 q2 B q3 q4 s B q5 q6  s)], <<END;
          q6
          q5
@@ -879,7 +921,7 @@ B<Example:>
    p6    q1
    v1    v2
   END
-
+  
   ok T [qw(p1 p2 b p3 p4 b p5 p6 v1 a1 v2 q1 q2 B q3 q4 s B q5 q6  s)], <<END;
          q6
          q5
@@ -894,93 +936,93 @@ B<Example:>
    p6    q1
    v1    v2
   END
-
+  
   ok T [qw(b v1 B d1 b v2 B)], <<END;
       d1
    v1    v2
   END
-
+  
   ok T [qw(b v1 B q1 q2 d1 b v2 B)], <<END;
       d1
    q2    v2
    q1
    v1
   END
-
+  
   ok E <<END;
   a
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'assignment operator': a.
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'assignment operator': a.
   END
-
+  
   ok E <<END;
   B
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'closing parenthesis': B.
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'closing parenthesis': B.
   END
-
+  
   ok E <<END;
   d1
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'dyadic operator': d1.
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'dyadic operator': d1.
   END
-
+  
   ok E <<END;
   p1
   Expected: 'opening parenthesis', 'prefix operator' or 'variable' after final 'prefix operator': p1.
   Expected: 'opening parenthesis', 'prefix operator' or 'variable' after final 'prefix operator': p1.
   END
-
+  
   ok E <<END;
   q1
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'suffix operator': q1.
   Expression must start with 'opening parenthesis', 'prefix operator', 'semi-colon' or 'variable', not 'suffix operator': q1.
   END
-
+  
   ok E <<END;
   s
-
-
+  
+  
   END
-
+  
   ok E <<END;
   v1
-
-
+  
+  
   END
-
+  
   ok E <<END;
   b v1
   Incomplete expression. Expected: 'assignment operator', 'closing parenthesis', 'dyadic operator', 'semi-colon' or 'suffix operator'.
   No closing parenthesis matching b at position 1.
   END
-
+  
   ok E <<END;
   b v1 B B
   Unexpected 'closing parenthesis': B following 'closing parenthesis': B at position 4. Expected: 'assignment operator', 'closing parenthesis', 'dyadic operator', 'semi-colon' or 'suffix operator'.
   Unexpected closing parenthesis B at position 4. Expected: 'assignment operator', 'closing parenthesis', 'dyadic operator', 'semi-colon' or 'suffix operator'.
   END
-
+  
   ok E <<END;
   v1 d1 d2 v2
   Unexpected 'dyadic operator': d2 following 'dyadic operator': d1 at position 3. Expected: 'assignment operator', 'opening parenthesis', 'prefix operator' or 'variable'.
   Unexpected 'dyadic operator': d2 following 'dyadic operator': d1 at position 3. Expected: 'assignment operator', 'opening parenthesis', 'prefix operator' or 'variable'.
   END
-
+  
   ok E <<END;
   v1 p1
   Unexpected 'prefix operator': p1 following term ending at position 2. Expected: 'assignment operator', 'closing parenthesis', 'dyadic operator', 'semi-colon' or 'suffix operator'.
   Unexpected 'prefix operator': p1 following 'variable': v1 at position 2. Expected: 'assignment operator', 'closing parenthesis', 'dyadic operator', 'semi-colon' or 'suffix operator'.
   END
-
-  if (1)
+  
+  if (1)                                                                          
    {eval {syntaxError(qw(v1 p1))};
     ok -1 < index $@, <<END =~ s({a}) ( )gsr;
   Unexpected 'prefix operator': p1 following 'variable': v1 at position 2.
   Expected: 'assignment operator', 'closing parenthesis',
   'dyadic operator', 'semi-colon' or 'suffix operator'.
   END
-
+  
 
 
 =head1 Hash Definitions
@@ -1059,6 +1101,35 @@ A term in the expression.
 =head4 v
 
 A variable in the expression.
+
+
+
+=head2 Tree::Term::LexicalStructure Definition
+
+
+Lexical item codes.
+
+
+
+
+=head3 Output fields
+
+
+=head4 codes
+
+Code describing each lexical item
+
+=head4 first
+
+Lexical items we can start with
+
+=head4 last
+
+Lexical items we can end with
+
+=head4 next
+
+Lexical items we can continue with
 
 
 
@@ -1158,6 +1229,69 @@ Complain about an unexpected element
   2  $unexpected  Unexpected element
   3  $position    Position
 
+=head2 test_b($item)
+
+Check that we have an opening bracket
+
+     Parameter  Description
+  1  $item      Item to test
+
+=head2 test_B($item)
+
+Check that we have an closing bracket
+
+     Parameter  Description
+  1  $item      Item to test
+
+=head2 test_p($item)
+
+Check that we have a prefix operator
+
+     Parameter  Description
+  1  $item      Item to test
+
+=head2 test_s($item)
+
+Check that we have a semi-colon
+
+     Parameter  Description
+  1  $item      Item to test
+
+=head2 test_v($item)
+
+Check that we have a variable
+
+     Parameter  Description
+  1  $item      Item to test
+
+=head2 test_ads($item)
+
+Check that we have a prefix operator
+
+     Parameter  Description
+  1  $item      Item to test
+
+=head2 test_bpsv($item)
+
+Check that we have an open bracket, prefix operator, semi-colon or variable
+
+     Parameter  Description
+  1  $item      Item to test
+
+=head2 test_sb($item)
+
+Check that we have a semi colon followed by a open bracket
+
+     Parameter  Description
+  1  $item      Item to test
+
+=head2 reduce($s)
+
+Convert the longest possible expression on top of the stack into a term
+
+     Parameter  Description
+  1  $s         Stack
+
 =head2 depth($term)
 
 Depth of a term in an expression.
@@ -1186,17 +1320,37 @@ List the terms in an expression in post order
 
 5 L<flat|/flat> - Print the terms in the expression as a tree from left right to make it easier to visualize the structure of the tree.
 
-6 L<listTerms|/listTerms> - List the terms in an expression in post order
+6 L<LexicalStructure|/LexicalStructure> - Return the lexical codes and their relationships in a data structure so this information can be used in other contexts.
 
-7 L<new|/new> - New term.
+7 L<listTerms|/listTerms> - List the terms in an expression in post order
 
-8 L<parse|/parse> - Parse an expression.
+8 L<new|/new> - New term.
 
-9 L<syntaxError|/syntaxError> - Check the syntax of an expression without parsing it.
+9 L<parse|/parse> - Parse an expression.
 
-10 L<type|/type> - Type of term
+10 L<reduce|/reduce> - Convert the longest possible expression on top of the stack into a term
 
-11 L<unexpected|/unexpected> - Complain about an unexpected element
+11 L<syntaxError|/syntaxError> - Check the syntax of an expression without parsing it.
+
+12 L<test_ads|/test_ads> - Check that we have a prefix operator
+
+13 L<test_B|/test_B> - Check that we have an closing bracket
+
+14 L<test_b|/test_b> - Check that we have an opening bracket
+
+15 L<test_bpsv|/test_bpsv> - Check that we have an open bracket, prefix operator, semi-colon or variable
+
+16 L<test_p|/test_p> - Check that we have a prefix operator
+
+17 L<test_s|/test_s> - Check that we have a semi-colon
+
+18 L<test_sb|/test_sb> - Check that we have a semi colon followed by a open bracket
+
+19 L<test_v|/test_v> - Check that we have a variable
+
+20 L<type|/type> - Type of term
+
+21 L<unexpected|/unexpected> - Complain about an unexpected element
 
 =head1 Installation
 
@@ -1239,7 +1393,7 @@ test unless caller;
 
 1;
 # podDocumentation
-__DATA__
+#__DATA__
 use Time::HiRes qw(time);
 use Test::More;
 
@@ -1250,7 +1404,7 @@ my $localTest = ((caller(1))[0]//'Tree::Term') eq "Tree::Term";                 
 Test::More->builder->output("/dev/null") if $localTest;                         # Reduce number of confirmation messages during testing
 
 if ($^O =~ m(bsd|linux)i)                                                       # Supported systems
- {plan tests => 44
+ {plan tests => 50
  }
 else
  {plan skip_all =>qq(Not supported on: $^O);
@@ -1581,5 +1735,58 @@ Expected: 'assignment operator', 'closing parenthesis',
 'dyadic operator', 'semi-colon' or 'suffix operator'.
 END
  }
+
+ok T [qw(v1 s)], <<END;
+ v1
+END
+
+ok T [qw(v1 s s)], <<END;
+    s
+ v1   empty5
+END
+
+ok T [qw(v1 s b s B)], <<END;
+    s
+ v1   empty5
+END
+
+ok T [qw(v1 s b b s s B B)], <<END;
+    s
+ v1          s
+      empty5   empty5
+END
+
+ok T [qw(b v1 s B s s)], <<END;
+    s
+ v1   empty5
+END
+
+is_deeply LexicalStructure,                                                     #TLexicalStructure
+bless({
+  codes => bless({
+             a => "assignment operator",
+             B => "closing parenthesis",
+             b => "opening parenthesis",
+             d => "dyadic operator",
+             p => "prefix operator",
+             q => "suffix operator",
+             s => "semi-colon",
+             t => "term",
+             v => "variable",
+           }, "Tree::Term::Codes"),
+  first => "bpsv",
+  last  => "Bqsv",
+  next  => bless({
+             a => "bpv",
+             B => "aBdqs",
+             b => "bBpsv",
+             d => "abpv",
+             p => "bpv",
+             q => "aBdqs",
+             s => "bBpsv",
+             t => "aBdqs",
+             v => "aBdqs",
+           }, "Tree::Term::Next"),
+}, "Tree::Term::LexicalStructure");
 
 lll "Finished in", sprintf("%7.4f", time - $startTime), "seconds";
