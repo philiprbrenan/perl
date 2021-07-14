@@ -5,7 +5,7 @@
 #-------------------------------------------------------------------------------
 package Tree::Term;
 use v5.26;
-our $VERSION = 20210704;                                                        # Version
+our $VERSION = 20210714;                                                        # Version
 use warnings FATAL => qw(all);
 use strict;
 use Carp qw(confess cluck);
@@ -29,28 +29,25 @@ sub new($@)                                                                     
   $t
  }
 
-my $codes = genHash(q(Tree::Term::Codes),                                       # Lexical item codes.
-  a => 'assignment operator',                                                   # Infix operator with priority 2 binding right to left typically used in an assignment.
-  b => 'opening parenthesis',                                                   # Opening parenthesis.
-  B => 'closing parenthesis',                                                   # Closing parenthesis.
-  d => 'dyadic operator',                                                       # Infix operator with priority 3 binding left to right typically used in arithmetic.
-  p => 'prefix operator',                                                       # Monadic prefix operator.
-  q => 'suffix operator',                                                       # Monadic suffix operator.
-  s => 'semi-colon',                                                            # Infix operator with priority 1 binding left to right typically used to separate statements.
-  t => 'term',                                                                  # A term in the expression.
-  v => 'variable',                                                              # A variable in the expression.
- );
+sub LexicalCode($$$)                                                            #P Lexical code definition
+ {my ($letter, $next, $name) = @_;                                              # Letter used to refer to the lexical item, letters of items that can follow this lexical item, descriptive name of lexical item
+  genHash(q(Tree::Term::LexicalCode),                                           # Lexical item codes.
+    letter => $letter,                                                          # Letter code used to refer to the lexical item.
+    next  => $next,                                                             # Letters codes of items that can follow this lexical item.
+    name  => $name,                                                             # Descriptive name of lexical item.
+   );
+ }
 
-my $next = genHash(q(Tree::Term::Next),                                         # Next lexical item expected in each context.  We test that each combination is viable by calling L<syntaxError> against each test sequence.
-  a => 'bpv',                                                                   # Infix operator with priority 2 binding right to left typically used in an assignment.
-  b => 'bBpsv',                                                                 # Open parenthesis.
-  B => 'aBdqs',                                                                 # Close parenthesis.
-  d => 'abpv',                                                                  # Infix operator with priority 3 binding left to right typically used in arithmetic.
-  p => 'bpv',                                                                   # Monadic prefix operator.
-  q => 'aBdqs',                                                                 # Monadic suffix operator.
-  s => 'bBpsv',                                                                 # Infix operator with priority 1 binding left to right typically used to separate statements.
-  t => 'aBdqs',                                                                 # A term in the expression.
-  v => 'aBdqs',                                                                 # A variable in the expression.
+my $LexicalCodes = genHash(q(Tree::Term::Codes),                                # Lexical item codes.
+  a => LexicalCode('a', 'bpv',   'assignment operator'),                        # Infix operator with priority 2 binding right to left typically used in an assignment.
+  b => LexicalCode('b', 'bBpsv', 'opening parenthesis'),                        # Opening parenthesis.
+  B => LexicalCode('B', 'aBdqs', 'closing parenthesis'),                        # Closing parenthesis.
+  d => LexicalCode('d', 'abpv',  'dyadic operator'),                            # Infix operator with priority 3 binding left to right typically used in arithmetic.
+  p => LexicalCode('p', 'bpv',   'prefix operator'),                            # Monadic prefix operator.
+  q => LexicalCode('q', 'aBdqs', 'suffix operator'),                            # Monadic suffix operator.
+  s => LexicalCode('s', 'bBpsv', 'semi-colon'),                                 # Infix operator with priority 1 binding left to right typically used to separate statements.
+  t => LexicalCode('t', 'aBdqs', 'term'),                                       # A term in the expression.
+  v => LexicalCode('v', 'aBdqs', 'variable'),                                   # A variable in the expression.
  );
 
 my $first = 'bpsv';                                                             # First element
@@ -58,9 +55,8 @@ my $last  = 'Bqsv';                                                             
 
 sub LexicalStructure()                                                          # Return the lexical codes and their relationships in a data structure so this information can be used in other contexts.
  {genHash(q(Tree::Term::LexicalStructure),                                      # Lexical item codes.
-    codes => $codes,                                                            # Code describing each lexical item
+    codes => $LexicalCodes,                                                     # Code describing each lexical item
     first => $first,                                                            # Lexical items we can start with
-    next  => $next,                                                             # Lexical items we can continue with
     last  => $last,                                                             # Lexical items we can end with
    );
  }
@@ -73,13 +69,13 @@ sub type($)                                                                     
 
 sub expandElement($)                                                            #P Describe a lexical element
  {my ($e) = @_;                                                                 # Element to expand
-  my $x = $$codes{type $e};                                                     # Expansion
+  my $x = $LexicalCodes->{type $e}->name;                                       # Expansion
   "'$x': $e"
  }
 
 sub expandCodes($)                                                              #P Expand a string of codes
  {my ($e) = @_;                                                                 # Codes to expand
-  my @c = map {qq('$_')} sort map {$$codes{$_}} split //, $e;                   # Codes  for next possible items
+  my @c = map {qq('$_')} sort map {$LexicalCodes->{$_}->name} split //, $e;     # Codes  for next possible items
   my $c = pop @c;
   my $t = join ', ', @c;
   "$t or $c"
@@ -87,7 +83,7 @@ sub expandCodes($)                                                              
 
 sub expected($)                                                                 #P String of next possible lexical items
  {my ($s) = @_;                                                                 # Lexical item
-  my $e = expandCodes $$next{type $s};                                          # Codes for next possible items
+  my $e = expandCodes $LexicalCodes->{type $s}->next;                           # Codes for next possible items
   "Expected: $e"
  }
 
@@ -122,7 +118,7 @@ sub syntaxError(@)                                                              
 
   my sub test($$$)                                                              # Test a transition
    {my ($current, $following, $position) = @_;                                  # Current element, following element, position
-    my $n = $$next{type $current};                                              # Elements expected next
+    my $n = $LexicalCodes->{type $current}->next;                               # Elements expected next
     return if index($n, type $following) > -1;                                  # Transition allowed
     unexpected $current, $following, $position - 1;                             # Complain about the unexpected element
    }
@@ -150,7 +146,7 @@ END
    {my @b;
     for my $i(keys @e)                                                          # Each element
      {my $e = $e[$i];
-      if (type ($e) eq 'b')                                                     # Open
+      if (type($e) eq 'b')                                                      # Open
        {push @b, [$i, $e];
        }
       elsif (type($e) eq 'B')                                                   # Close
@@ -187,44 +183,20 @@ END
    }
  }
 
-sub test_b($)                                                                   #P Check that we have an opening bracket
+for my $t(qw(abdps ads b B bdp bdps bpsv bst p pbsv s sb sbt v))                # Test various sets of items
+ {my $c = <<'END';
+sub test_XXXX($)                                                                #P Check that we have XXXX
  {my ($item) = @_;                                                              # Item to test
-  !ref($item) and substr($item, 0, 1) eq 'b'
+  !ref($item) and index('XXXX',  substr($item, 0, 1)) > -1
+ }
+END
+       $c =~ s(XXXX) ($t)gs;
+  eval $c; $@ and confess "$@\n";
  }
 
-sub test_B($)                                                                   #P Check that we have an closing bracket
+sub test_t($)                                                                   #P Check that we have a semi-colon
  {my ($item) = @_;                                                              # Item to test
-  !ref($item) and substr($item, 0, 1) eq 'B'
- }
-
-sub test_p($)                                                                   #P Check that we have a prefix operator
- {my ($item) = @_;                                                              # Item to test
-  !ref($item) and substr($item, 0, 1) eq 'p'
- }
-
-sub test_s($)                                                                   #P Check that we have a semi-colon
- {my ($item) = @_;                                                              # Item to test
-  !ref($item) and substr($item, 0, 1) eq 's'
- }
-
-sub test_v($)                                                                   #P Check that we have a variable
- {my ($item) = @_;                                                              # Item to test
-  !ref($item) and substr($item, 0, 1) eq 'v'
- }
-
-sub test_ads($)                                                                 #P Check that we have a prefix operator
- {my ($item) = @_;                                                              # Item to test
-  !ref($item) and index('ads',  substr($item, 0, 1)) > -1
- }
-
-sub test_bpsv($)                                                                #P Check that we have an open bracket, prefix operator, semi-colon or variable
- {my ($item) = @_;                                                              # Item to test
-  !ref($item) and index('bpsv', substr($item, 0, 1)) > -1
- }
-
-sub test_sb($)                                                                  #P Check that we have a semi colon followed by a open bracket
- {my ($item) = @_;                                                              # Item to test
-  !ref($item) and index('sb',   substr($item, 0, 1)) > -1
+  ref $item
  }
 
 sub reduce($)                                                                   #P Convert the longest possible expression on top of the stack into a term
@@ -233,12 +205,12 @@ sub reduce($)                                                                   
 
   if (@$s >= 3)                                                                 # Go for term infix-operator term
    {my ($l, $d, $r) = ($$s[-3], $$s[-2], $$s[-1]);                              # Left dyad right
-    if (ref($l) and ref($r) and test_ads($d))                                   # Parse out infix operator expression
+    if (test_t($l) and test_t($r) and test_ads($d))                             # Parse out infix operator expression
      {pop  @$s for 1..3;
       push @$s, new $d, $l, $r;
       return 1;
      }
-    if (test_b($l) and test_B($r) and ref($d))                                  # Parse parenthesized term
+    if (test_b($l) and test_B($r) and test_t($d))                               # Parse parenthesized term
      {pop  @$s for 1..3;
       push @$s, $d;
       return 1;
@@ -257,7 +229,7 @@ sub reduce($)                                                                   
       push @$s, $r;
       return 1;
      }
-    if (test_p($l) and ref($r))                                                 # Prefix, term
+    if (test_p($l) and test_t($r))                                              # Prefix, term
      {pop  @$s for 1..2;
       push @$s, new $l, $r;
       return 1;
@@ -267,6 +239,18 @@ sub reduce($)                                                                   
   undef                                                                         # No move made
  }
 
+for my $t(qw(t bdp bdps bst abdps))
+ {my $c = <<'END';
+sub check_XXXX($$$)                                                             #P Check that the top of the stack has one of bdps
+ {my ($s, $i, $e) = @_;                                                         # Stack, index of current element, current element
+  return 1 if index("XXXX", type($$s[-1])) > -1;                                # Check type allowed
+  unexpected $$s[-1], $e, $i;                                                   # Complain about an unexpected type
+ }
+END
+       $c =~ s(XXXX) ($t)gs;
+  eval $c; $@ and confess "$@\n";
+ }
+
 sub parse(@)                                                                    # Parse an expression.
  {my (@expression) = @_;                                                        # Expression to parse
 
@@ -274,12 +258,6 @@ sub parse(@)                                                                    
 
   for my $i(keys @expression)                                                   # Each input element
    {my $e = $expression[$i];
-
-    my sub check($)                                                             #P Check that the top of the stack has one of the specified elements
-     {my ($types) = @_;                                                         # Possible types to match
-      return 1 if index($types, type($$s[-1])) > -1;                            # Check type allowed
-      unexpected $$s[-1], $e, $i;                                               # Complain about an unexpected type
-     };
 
     if (!@$s)                                                                   # Empty stack
      {my $E = expandElement $e;
@@ -298,38 +276,37 @@ END
        }
       next;
      }
-
-    my %action =                                                                # Action on each lexical item
-     (a => sub                                                                  # Assign
-       {check("t");
+                                                                                # Action on each lexical item
+     {a => sub                                                                  # Assign
+       {check_t($s, $i, $e);
         push @$s, $e;
        },
 
       b => sub                                                                  # Open
-       {check("bdps");
+       {check_bdps($s, $i, $e);
         push @$s, $e;
        },
 
       B => sub                                                                  # Closing parenthesis
-       {check("bst");
+       {check_bst($s, $i, $e);
         1 while reduce $s;
         push @$s, $e;
         1 while reduce $s;
-        check("bst");
+        check_bst($s, $i, $e);
        },
 
       d => sub                                                                  # Infix but not assign or semi-colon
-       {check("t");
+       {check_t($s, $i, $e);
         push @$s, $e;
        },
 
       p => sub                                                                  # Prefix
-       {check("bdp");
+       {check_bdp($s, $i, $e);
         push @$s, $e;
        },
 
       q => sub                                                                  # Post fix
-       {check("t");
+       {check_t($s, $i, $e);
         if (ref $$s[-1])                                                        # Post fix operator applied to a term
          {my $p = pop @$s;
           push @$s, new $e, $p;
@@ -337,14 +314,14 @@ END
        },
 
       s => sub                                                                  # Semi colon
-       {check("bst");
+       {check_bst($s, $i, $e);
         push @$s, new 'empty5' if test_sb($$s[-1]);                             # Insert an empty element between two consecutive semicolons
         1 while reduce $s;
         push @$s, $e;
        },
 
       v => sub                                                                  # Variable
-       {check("abdps");
+       {check_abdps($s, $i, $e);
         push @$s, new $e;
 
         while(@$s >= 2 and 'p' eq type($$s[-2]))                                # Check for preceding prefix operators
@@ -352,9 +329,7 @@ END
           push @$s, new $l, $r;
          }
        },
-     );
-
-    $action{substr($e, 0, 1)}->();                                              # Dispatch the action associated with the lexical item
+     }->{substr($e, 0, 1)}->();                                                 # Dispatch the action associated with the lexical item
    }
 
   pop @$s while @$s > 1 and $$s[-1] =~ m(s);                                    # Remove any trailing semi colons
@@ -515,7 +490,7 @@ END
 Create a parse tree from an array of terms representing an expression.
 
 
-Version 20210704.
+Version 20210714.
 
 
 The following sections describe the methods in each functional area of this
@@ -1104,6 +1079,31 @@ A variable in the expression.
 
 
 
+=head2 Tree::Term::LexicalCode Definition
+
+
+Lexical item codes.
+
+
+
+
+=head3 Output fields
+
+
+=head4 letter
+
+Letter code used to refer to the lexical item.
+
+=head4 name
+
+Descriptive name of lexical item.
+
+=head4 next
+
+Letters codes of items that can follow this lexical item.
+
+
+
 =head2 Tree::Term::LexicalStructure Definition
 
 
@@ -1127,59 +1127,6 @@ Lexical items we can start with
 
 Lexical items we can end with
 
-=head4 next
-
-Lexical items we can continue with
-
-
-
-=head2 Tree::Term::Next Definition
-
-
-Next lexical item expected in each context.  We test that each combination is viable by calling L<syntaxError> against each test sequence.
-
-
-
-
-=head3 Output fields
-
-
-=head4 B
-
-Close parenthesis.
-
-=head4 a
-
-Infix operator with priority 2 binding right to left typically used in an assignment.
-
-=head4 b
-
-Open parenthesis.
-
-=head4 d
-
-Infix operator with priority 3 binding left to right typically used in arithmetic.
-
-=head4 p
-
-Monadic prefix operator.
-
-=head4 q
-
-Monadic suffix operator.
-
-=head4 s
-
-Infix operator with priority 1 binding left to right typically used to separate statements.
-
-=head4 t
-
-A term in the expression.
-
-=head4 v
-
-A variable in the expression.
-
 
 
 =head1 Private Methods
@@ -1191,6 +1138,15 @@ New term.
      Parameter  Description
   1  $operator  Operator
   2  @operands  Operands.
+
+=head2 LexicalCode($letter, $next, $name)
+
+Lexical code definition
+
+     Parameter  Description
+  1  $letter    Letter used to refer to the lexical item
+  2  $next      Letters of items that can follow this lexical item
+  3  $name      Descriptive name of lexical item
 
 =head2 type($s)
 
@@ -1229,58 +1185,16 @@ Complain about an unexpected element
   2  $unexpected  Unexpected element
   3  $position    Position
 
-=head2 test_b($item)
+=head2 test_XXXX($item)
 
-Check that we have an opening bracket
-
-     Parameter  Description
-  1  $item      Item to test
-
-=head2 test_B($item)
-
-Check that we have an closing bracket
+Check that we have XXXX
 
      Parameter  Description
   1  $item      Item to test
 
-=head2 test_p($item)
-
-Check that we have a prefix operator
-
-     Parameter  Description
-  1  $item      Item to test
-
-=head2 test_s($item)
+=head2 test_t($item)
 
 Check that we have a semi-colon
-
-     Parameter  Description
-  1  $item      Item to test
-
-=head2 test_v($item)
-
-Check that we have a variable
-
-     Parameter  Description
-  1  $item      Item to test
-
-=head2 test_ads($item)
-
-Check that we have a prefix operator
-
-     Parameter  Description
-  1  $item      Item to test
-
-=head2 test_bpsv($item)
-
-Check that we have an open bracket, prefix operator, semi-colon or variable
-
-     Parameter  Description
-  1  $item      Item to test
-
-=head2 test_sb($item)
-
-Check that we have a semi colon followed by a open bracket
 
      Parameter  Description
   1  $item      Item to test
@@ -1291,6 +1205,15 @@ Convert the longest possible expression on top of the stack into a term
 
      Parameter  Description
   1  $s         Stack
+
+=head2 check_XXXX($s, $i, $e)
+
+Check that the top of the stack has one of bdps
+
+     Parameter  Description
+  1  $s         Stack
+  2  $i         Index of current element
+  3  $e         Current element
 
 =head2 depth($term)
 
@@ -1310,47 +1233,39 @@ List the terms in an expression in post order
 =head1 Index
 
 
-1 L<depth|/depth> - Depth of a term in an expression.
+1 L<check_XXXX|/check_XXXX> - Check that the top of the stack has one of bdps
 
-2 L<expandCodes|/expandCodes> - Expand a string of codes
+2 L<depth|/depth> - Depth of a term in an expression.
 
-3 L<expandElement|/expandElement> - Describe a lexical element
+3 L<expandCodes|/expandCodes> - Expand a string of codes
 
-4 L<expected|/expected> - String of next possible lexical items
+4 L<expandElement|/expandElement> - Describe a lexical element
 
-5 L<flat|/flat> - Print the terms in the expression as a tree from left right to make it easier to visualize the structure of the tree.
+5 L<expected|/expected> - String of next possible lexical items
 
-6 L<LexicalStructure|/LexicalStructure> - Return the lexical codes and their relationships in a data structure so this information can be used in other contexts.
+6 L<flat|/flat> - Print the terms in the expression as a tree from left right to make it easier to visualize the structure of the tree.
 
-7 L<listTerms|/listTerms> - List the terms in an expression in post order
+7 L<LexicalCode|/LexicalCode> - Lexical code definition
 
-8 L<new|/new> - New term.
+8 L<LexicalStructure|/LexicalStructure> - Return the lexical codes and their relationships in a data structure so this information can be used in other contexts.
 
-9 L<parse|/parse> - Parse an expression.
+9 L<listTerms|/listTerms> - List the terms in an expression in post order
 
-10 L<reduce|/reduce> - Convert the longest possible expression on top of the stack into a term
+10 L<new|/new> - New term.
 
-11 L<syntaxError|/syntaxError> - Check the syntax of an expression without parsing it.
+11 L<parse|/parse> - Parse an expression.
 
-12 L<test_ads|/test_ads> - Check that we have a prefix operator
+12 L<reduce|/reduce> - Convert the longest possible expression on top of the stack into a term
 
-13 L<test_B|/test_B> - Check that we have an closing bracket
+13 L<syntaxError|/syntaxError> - Check the syntax of an expression without parsing it.
 
-14 L<test_b|/test_b> - Check that we have an opening bracket
+14 L<test_t|/test_t> - Check that we have a semi-colon
 
-15 L<test_bpsv|/test_bpsv> - Check that we have an open bracket, prefix operator, semi-colon or variable
+15 L<test_XXXX|/test_XXXX> - Check that we have XXXX
 
-16 L<test_p|/test_p> - Check that we have a prefix operator
+16 L<type|/type> - Type of term
 
-17 L<test_s|/test_s> - Check that we have a semi-colon
-
-18 L<test_sb|/test_sb> - Check that we have a semi colon followed by a open bracket
-
-19 L<test_v|/test_v> - Check that we have a variable
-
-20 L<type|/type> - Type of term
-
-21 L<unexpected|/unexpected> - Complain about an unexpected element
+17 L<unexpected|/unexpected> - Complain about an unexpected element
 
 =head1 Installation
 
@@ -1764,29 +1679,18 @@ END
 is_deeply LexicalStructure,                                                     #TLexicalStructure
 bless({
   codes => bless({
-             a => "assignment operator",
-             B => "closing parenthesis",
-             b => "opening parenthesis",
-             d => "dyadic operator",
-             p => "prefix operator",
-             q => "suffix operator",
-             s => "semi-colon",
-             t => "term",
-             v => "variable",
+             a => bless({ letter => "a", name => "assignment operator", next => "bpv" },   "Tree::Term::LexicalCode"),
+             b => bless({ letter => "b", name => "opening parenthesis", next => "bBpsv" }, "Tree::Term::LexicalCode"),
+             B => bless({ letter => "B", name => "closing parenthesis", next => "aBdqs" }, "Tree::Term::LexicalCode"),
+             d => bless({ letter => "d", name => "dyadic operator",     next => "abpv" },  "Tree::Term::LexicalCode"),
+             p => bless({ letter => "p", name => "prefix operator",     next => "bpv" },   "Tree::Term::LexicalCode"),
+             q => bless({ letter => "q", name => "suffix operator",     next => "aBdqs" }, "Tree::Term::LexicalCode"),
+             s => bless({ letter => "s", name => "semi-colon",          next => "bBpsv" }, "Tree::Term::LexicalCode"),
+             t => bless({ letter => "t", name => "term",                next => "aBdqs" }, "Tree::Term::LexicalCode"),
+             v => bless({ letter => "v", name => "variable",            next => "aBdqs" }, "Tree::Term::LexicalCode"),
            }, "Tree::Term::Codes"),
   first => "bpsv",
   last  => "Bqsv",
-  next  => bless({
-             a => "bpv",
-             B => "aBdqs",
-             b => "bBpsv",
-             d => "abpv",
-             p => "bpv",
-             q => "aBdqs",
-             s => "bBpsv",
-             t => "aBdqs",
-             v => "aBdqs",
-           }, "Tree::Term::Next"),
 }, "Tree::Term::LexicalStructure");
 
 lll "Finished in", sprintf("%7.4f", time - $startTime), "seconds";
