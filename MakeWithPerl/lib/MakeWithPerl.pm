@@ -3,6 +3,7 @@
 # Make with Perl
 # Philip R Brenan at gmail dot com, Appa Apps Ltd, 2017
 #-------------------------------------------------------------------------------
+use v5.26;
 package MakeWithPerl;
 our $VERSION = "20210601";
 use warnings FATAL => qw(all);
@@ -11,6 +12,7 @@ use Carp qw(confess);
 use Data::Dump qw(dump);
 use Data::Table::Text qw(:all);
 use Getopt::Long;
+use Time::HiRes qw(time);
 use utf8;
 
 sub mwpl {qq(makeWithPerlLocally.pl)}                                           # Make with Perl locally
@@ -47,6 +49,8 @@ GetOptions(
  );
 
 my $file = shift @ARGV // $0;                                                   # File to process
+
+$cIncludes //= "-I/home/phil/c/ -I.";                                           # Includes used in C files if not already set
 
 unless($file)                                                                   # Confirm we have a file
  {confess "Use %f to specify the file to process";
@@ -92,8 +96,7 @@ if ($doc)                                                                       
     #$j->target = my $f = filePathExt($javaHome, qw(documentation html));
     #$j->indent = 20;
     #$j->colors = [map {"#$_"} qw(ccFFFF FFccFF FFFFcc CCccFF FFCCcc ccFFCC)];
-    #$j->html;
-    #qx(opera $f);
+    #$j->html;  69.221.225.129
    }
   else
    {confess "Unable to document file $file";
@@ -108,7 +111,33 @@ if (-e mwpl and $run)                                                           
   exit;
  }
 
-if ($file =~ m(\.p[lm]\Z))                                                      # Perl
+if ($file =~ m(/bt/files/booktrolls/.*\.(p[lm]|cgi)\Z))                         # Perl on booktrolls
+ {my $b  = q(phil@booktrolls.com);
+  my $f1 = q(/home/phil/zzz1.txt);
+  my $f2 = q(/home/phil/zzz2.txt);
+  my $p  = $file =~ s(/bt/files/booktrolls/) (/booktrolls/)sr;
+  my $o  = q(-I/home/phil/booktrolls/lib/);
+  my $k  = qq(1>$f1 2>$f2);
+
+  if ($compile)                                                                 # Syntax check perl
+   {my $c = qq(ssh -4 $b 'perl $o -cw $p $k');
+    say STDERR qq($c);
+    say STDERR qx($c);
+   }
+  else                                                                          # Run perl
+   {my $c = qq(ssh -4 $b 'perl $o     $p $k');
+    say STDERR qq($c);
+    say STDERR qx($c);
+   }
+# print STDERR qx(rsync $b:$f1 $f1; rsync $b:$f2 $f2; cat $f1 $f2);
+  if (1)
+   {my $c = qq(rsync $b:/home/phil/zzz[12].txt /home/phil/ && cat /home/phil/zzz[12].txt);
+    say STDERR qx($c);
+   }
+  exit;
+ }
+
+if ($file =~ m(\.(p[lm]|cgi)\Z))                                                # Perl
  {if ($compile)                                                                 # Syntax check perl
    {print STDERR qx(perl -CSDA -cw "$file");
    }
@@ -131,13 +160,13 @@ if ($file =~ m(\.p[lm]\Z))                                                      
 if ($file =~ m(\.(txt|htm)\Z))                                                  # Html
  {my $s = expandWellKnownUrlsInHtmlFormat
           expandWellKnownWordsAsUrlsInHtmlFormat
-          readFile $file;
+          join "", includeFiles $file;                                          # Expand any include files
   my $o = setFileExtension $file, q(html);                                      # Output file
   my $f = owf $o, $s;
 
   if ($htmlToPdf)                                                               # Convert html to pdf if requested
    {my $p = setFileExtension($file, q(pdf));
-    say STDERR qx(wkhtmltopdf $f $p);
+    say STDERR qx(wkhtmltopdf  --enable-local-file-access $f $p);
    }
   elsif ($showHtml//1)                                                          # Show html in opera
    {my $c = qq(timeout 3m opera $o);
@@ -173,12 +202,142 @@ if ($file =~ m(\.asm\Z))                                                        
   exit;
  }
 
+sub profile($)                                                                  # Add profile lines
+ {my ($file) = @_;                                                              # Parameters
+  my @lines  = readFile($file);                                                 # Source file
+  my $ext    = fe $file;                                                        # File extension shows type
+  my $re;
+     $re = qr(final static int..lined = null;) if $ext =~ m(java);              # Profile requested from Java
+     $re = qr(int lined\[LINES\] = \{\};)      if $ext =~ m(c);                 # Profile requested from C
+
+  my $p = 0;
+  for my $i(keys @lines)                                                        # Check for profile if supplied
+   {$p = $i if $lines[$i] =~ m($re);
+   }
+
+  if ($p)                                                                       # Profile requested
+   {my @lined;
+    for my $l(keys @lines)                                                      # Profiler
+     {my $l1 = $l + 1;
+      if ($lines[$l] =~ m(\A//p))                                               # Capture profile statistics
+       {  $lines[$l] = "line[$l1]++;\n";
+        push @lined, $l1;
+       }
+     }
+    my $lined = join '', '{', join(', ', @lined), '}';                          # Missed lines
+    if ($ext =~ m(java)i)
+     {$lines[$p] =~ s(null) ($lined);
+     }
+    else
+     {$lines[$p] =~ s(\{\}) ($lined);
+     }
+    return owf(fpe(fpn($file)."2", fe($file)), join '', @lines);                # Similar file name
+   }
+  $file
+ }
+
+sub runTests($$)                                                                # Run some tests embedded in a source file
+ {my ($file, $command) = @_;                                                    # Source file, compile && run command
+  my  @tests = split m(\n(?=//test\s+))i, readFile($file);                      # Split on tests
+  shift @tests;
+
+  if (@tests > 0)                                                               # Tests present
+   {my $passed = 0; my $failed = 0;
+    my ($compile, $run) = split /&&/, $command, 2;                              # Commands to compile and execute java
+    print qx($compile);
+
+    my $start = time();
+
+    for my $testi(keys @tests)
+     {my $test  = $tests[$testi];
+      my $testI = $testi+1;
+      my $line  = $test =~ s(\n.*) ()isr;
+      my $title = $line =~ s(//TEST\s+) ()isr =~ s(\-{2,}\w+) ()gsr;
+
+      if ($line =~ m(--skip)i)
+       {say STDERR sprintf "%4d Skip requested               %s", $testI, $title;
+        next;
+       }
+
+      my ($input, @expected) = split /\n\-{4,}\n/, $test;                       # Each test can possibly have multiple answers
+
+      $expected[-1] =~ s/\s*\*\//\n/s;
+      for my $i(keys @expected)
+       {$expected[$i] =~ s(\A\s+) ()s;
+        $expected[$i] =~ s(\s+\Z) (\n)s;
+       }
+      $input        =~ s(\A.*?/\*\n) ()s;
+
+      my $in    = writeTempFile("$input\n");
+      my $out   = temporaryFile;
+
+      my $start = time;
+      print STDERR qx($run $line --expected="$expected[0]" <$in >$out);         # Run program
+      if ($? != 0)
+       {my $c = $? >> 8;
+        lll "Exiting on non zero return code $c";
+        exit $c;
+       }
+      my $time  = time - $start;
+      my $got   = readFile($out);
+      unlink $in, $out;
+
+      my $matches = 0;                                                          # Number of tests matched
+      for my $expected(@expected)
+       {if ($got eq $expected)                                                  # Evaluate test
+         {++$passed;
+          say STDERR sprintf "%4d passed in %8.4f seconds ++ %s", $testI, $time, $title;
+          ++$matches;
+          last;
+         }
+       }
+      if ($matches == 0)                                                        # Nothing matched
+       {for my $expected(@expected)
+         {say STDERR "FAILED:\n$got\nVersus:\n$expected"; ++$failed;
+          #say STDERR "In  : ", dump($input);
+          say STDERR "Got : ", dump($got);
+          say STDERR "Want: ", dump($expected);
+         #last unless $line =~ m(--continue)i;
+         }
+        say STDERR sprintf "%4d failed in %8.4f seconds -- %s", $testI, $time, $title;
+       }
+
+      if ($line =~ m(--stop)i)
+       {say STDERR sprintf "%4d Stop requested               %s", $testI, $title;
+        return;
+       }
+     }
+    if ($failed)
+     {say STDERR sprintf "%4d FAILED, %4d passed in %8.4f seconds", $failed, $passed, time - $start;
+     }
+    else
+     {say STDERR sprintf "ALL %4d  passed in %8.4f seconds",                 $passed, time - $start;
+     }
+   }
+  else
+   {print STDERR qx($command);
+   }
+ }
+
 if ($file =~ m(\.cp*\Z))                                                        # GCC
- {my $cp = join ' ', map {split /\s+/} grep {!/\A#/} split /\n/, <<END;         # Compiler options
+ {my $mix = "sde-mix-out.txt";                                                  # Mix performance file produced by Intel emulator
+  unlink $mix;
+  my $cp = join ' ', map {split /\s+/} grep {!/\A#/} split /\n/, <<END;         # Compiler options
+-fopenmp
 -finput-charset=UTF-8 -fmax-errors=7 -rdynamic
 -Wall -Wextra -Wno-unused-function
+$cIncludes
+-I.
 END
+#-O3
+  my $source   = readFile($file);                                               # Check source for specific capabilities needed
+  my $avx512   = $source =~ m'//sde';                                           # Avx512 instructions
+  my $valgrind = $source =~ m(//valgrind)i;                                     # Request Valgrind
+  my $optimize = $source =~ m(//optimize)i;                                     # Request optimization
+  $cp .= " -mavx512f" if $avx512;
+  $cp .= $optimize ? " -O3 " : " -O0 -g3 -rdynamic ";
 
+# -pg for gprof executable gmon.out
   my $gcc = $gccVersion // 'gcc';                                               # Gcc version 10
   if ($compile)
    {my $cmd = qq($gcc $cp -c "$file" -o /dev/null);                             # Syntax check
@@ -189,21 +348,33 @@ END
    {my $e = $file =~ s(\.cp?p?\Z) ()gsr;                                        # Execute
     my $o = fpe($e, q(o));                                                      # Object file
     unlink $e, $o;
+    my $E = $avx512 ? "sde -mix -- $e" : $e;
 
-    my  $c = qq($gcc $cp -o "$e" "$file" && $e);                                # Compile and run
-    lll qq($c);
-    lll qx($c);
+    my $f = profile($file);
+    my $l = q(-lm);
+
+    my  $c = $valgrind ?                                                        # Compile and run
+        qq($gcc $cp -o "$e" "$f" && valgrind --leak-check=full --leak-resolution=high --show-leak-kinds=definite  --track-origins=yes $E 2>&1)
+       :qq($gcc $cp -o "$e" "$f" $l && timeout 100s $E);
+    say STDERR $c;
+    runTests($file, $c);
     unlink $o;
 
-    if ($valgrind)                                                              # Valgrind requested
-     {my $c = qq(valgrind --leak-check=full --leak-resolution=high --show-leak-kinds=definite  --track-origins=yes $e 2>&1);
-      lll qq($c);
-      my $result = qx($c);
-      lll $result;
-      exit(1) unless $result =~ m(ERROR SUMMARY: 0 errors from 0 contexts);
-      lll "SUCCESS: no memory leaks"
+    if (-e $mix)
+     {my $s = readFile($mix);
+      if ($s =~ m(\*total\s+(\d+)))
+       {say '// ', numberWithCommas($1)." instructions executed";
+       }
      }
    }
+  exit;
+ }
+
+if ($file =~ m(\.rkt\Z))                                                        # Racket
+ {my $c = qq(racket -f "$file");
+  say STDERR $c;
+  print STDERR qx($c);
+  say STDERR q();
   exit;
  }
 
@@ -246,16 +417,20 @@ if ($file =~ m(\.java\Z))                                                       
   my $package = &getPackageNameFromFile($file);                                 # Get package name
   my $cp      = fpd($javaHome, qw(Classes));                                    # Folder containing java classes
   if ($compile)                                                                 # Compile
-   {my $c = "javac -g -d $cp -cp $cp -Xlint -Xdiags:verbose $file -Xmaxerrs 99";# Syntax check Java
+   {my $c = "javac -g -d $cp -cp $cp -Xlint -Xdiags:verbose $file -Xmaxerrs 9";# Syntax check Java
     say STDERR $c;
     print STDERR qx($c);
    }
   else                                                                          # Compile and run
    {my $class = $package ? "$package.$name" : $name;                            # Class location
     my $p = join ' ', @ARGV;                                                    # Collect the remaining parameters and pass them to the java application
-    my $c = "javac -g -d $cp -cp $cp $file && java -ea -cp $cp $class $p";      # Run java
+    my $f = profile($file);
+#   my $c = "javac -g -d $cp -cp $cp $file && java -ea -cp $cp $class $p";      # Run java
+    my $c = "javac -g -d $cp -cp $cp $f && java -ea -cp $cp $class $p";         # Run java
     say STDERR $c;
-    print STDERR qx($c);
+
+    runTests($file, $c);
+#   unlink $f;
    }
   &removeClasses;
   exit;
