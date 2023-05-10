@@ -1,7 +1,7 @@
 #!/usr/bin/perl -I/home/phil/perl/cpan/DataTableText/lib/
 #-------------------------------------------------------------------------------
 # Write data in tabular text format.
-# Philip R Brenan at gmail dot com, Appa Apps Ltd Inc, 2016-2020
+# Philip R Brenan at gmail dot com, Appa Apps Ltd Inc, 2016-2023
 #-------------------------------------------------------------------------------
 # podDocumentation
 # cd /home/phil/perl/cpan/DataTableText/; perl Build.PL && perl Build test && sudo perl Build install
@@ -12,10 +12,11 @@
 # runInParallel - processing statistics
 # formatTable should optionally clear left columns identical to previous line
 # checkKeys information should be formatted so it can be referred to in sub descriptions
-# updateDocumentation - mark synopsis tests with #S an place in synopsis
+# updateDocumentation - mark synopsis tests with #S and place in synopsis
+# pop r15 before calling target sub
 package Data::Table::Text;
 use v5.26;
-our $VERSION = 20210730;                                                        # Version
+our $VERSION = 20230503;                                                        # Version
 use warnings FATAL => qw(all);
 use strict;
 use Carp qw(confess carp cluck);
@@ -24,7 +25,7 @@ use Digest::MD5 qw(md5_hex);
 use File::Path qw(make_path);
 use File::Glob qw(:bsd_glob);
 use File::Temp qw(tempfile tempdir);
-use POSIX qw(:sys_wait_h strftime);                                             # http://www.cplusplus.com/reference/ctime/strftime/
+use POSIX qw(:sys_wait_h strftime);                                             # Http://www.cplusplus.com/reference/ctime/strftime/
 use Data::Dump qw(dump);
 use IO::Socket::UNIX;
 use JSON;
@@ -37,7 +38,7 @@ use utf8;
 
 #D1 Time stamps                                                                 # Date and timestamps as used in logs of long running commands.
 
-sub dateTimeStamp                                                               #I Year-monthNumber-day at hours:minute:seconds
+sub dateTimeStamp                                                               #I Year-monthNumber-day at hours:minute:seconds.
  {strftime('%Y-%m-%d at %H:%M:%S', localtime)
  }
 
@@ -45,19 +46,19 @@ sub dateTimeStampName                                                           
  {strftime('_on_%Y_%m_%d_at_%H_%M_%S', localtime)
  }
 
-sub dateStamp                                                                   # Year-monthName-day
+sub dateStamp                                                                   # Year-monthName-day.
  {strftime('%Y-%b-%d', localtime)
  }
 
-sub versionCode                                                                 # YYYYmmdd-HHMMSS
+sub versionCode                                                                 # YYYYmmdd-HHMMSS.
  {strftime('%Y%m%d-%H%M%S', localtime)
  }
 
-sub versionCodeDashed                                                           # YYYY-mm-dd-HH:MM:SS
+sub versionCodeDashed                                                           # YYYY-mm-dd-HH:MM:SS.
  {strftime('%Y-%m-%d-%H:%M:%S', localtime)
  }
 
-sub timeStamp                                                                   # hours:minute:seconds
+sub timeStamp                                                                   # Hours:minute:seconds.
  {strftime('%H:%M:%S', localtime)
  }
 
@@ -68,7 +69,7 @@ sub microSecondsSinceEpoch                                                      
 
 #D1 Command execution                                                           # Various ways of processing commands and writing results.
 
-sub ddd(@)                                                                      # Dump data
+sub ddd(@)                                                                      # Dump data.
  {my (@data) = @_;                                                              # Messages
   my $m = dump(@_);                                                             # Dump data
 
@@ -94,7 +95,7 @@ sub fff($$@)                                                                    
   return unless $m =~ m(\S)s;
 # $m =~ s(\n) ( )gs;
   $m .= " called at $file line $line";
-  confess "$m\n";                                                               # Confess
+  cluck "$m\n";                                                                 # Confess
  }
 
 my $mmm = 0;                                                                    # Time of last message
@@ -163,12 +164,12 @@ sub xxx(@)                                                                      
   $response
  } # xxx
 
-sub xxxr($;$)                                                                   #I Execute a command B<$cmd> via bash on the server whose ip address is specified by B<$ip> or returned by L<awsIp>. The command will be run using the userid listed in F<.ssh/config>
+sub xxxr($;$)                                                                   #I Execute a command B<$cmd> via bash on the server whose ip address is specified by B<$ip> or returned by L<awsIp>. The command will be run using the userid listed in F<.ssh/config>.
  {my ($cmd, $ip) = @_;                                                          # Command string, optional ip address
   my $i = $ip // &awsIp;                                                        # Ip address
   return undef unless confirmHasCommandLineCommand(q(ssh));                     # Confirm we have ssh
-  my $c = qq(ssh $i "$cmd 2>&1");                                                # Command
-  lll $c;
+  my $c = qq(ssh $i "$cmd 2>&1");                                               # Command
+# lll $c;
   my $r = eval {qx($c)};                                                        # Execute command remotely
   lll $r if $r;
   $r
@@ -298,10 +299,21 @@ END
     my $save = join "\n", @save;
     eval $save;                                                                 # Evaluate perl code
     my $r = $@;                                                                 # Save result
-    clearFolder($folder, scalar(@our)+1);                                        # Remove transfer files
+    clearFolder($folder, scalar(@our)+1);                                       # Remove transfer files
     confess "$r\n$save\n" if $r;                                                # Confess to any errors
    }
  } # call
+
+sub evalOrConfess(@)                                                            # Evaluate some code successfully or confess as to why it failed to evaluate successfully.
+ {my (@c) = @_;                                                                 # Code to evaluate
+  my $c = join " ", @c;                                                         # Command as one string
+  my $r = eval $c;                                                              # Evaluate string and record result
+  if ($@)                                                                       # An error occurred
+   {my $R = dump($r);                                                           # Dump result so it can be used as a string
+    confess "$c\n$R\n$@\n";                                                     # Confess to error
+   }
+  $r                                                                            # Return result
+ }
 
 #D1 Files and paths                                                             # Operations on files and paths.
 #D2 Statistics                                                                  # Information about each file.
@@ -324,7 +336,7 @@ sub folderSize($)                                                               
   return undef unless -d $folder;                                               # Not a folder
   return undef unless confirmHasCommandLineCommand(q(du));                      # Confirm we have the disk used command
   my $s = qx(du -s $folder);                                                    # Folder size
-  $s =~ s(\s.*\Z) ()gsr                                                         # nnnn folder
+  $s =~ s(\s.*\Z) ()gsr                                                         # Folder nnnn
  }
 
 sub fileMd5Sum($)                                                               # Get the Md5 sum of the content of a B<$file>.
@@ -393,7 +405,7 @@ sub firstFileThatExists(@)                                                      
   undef                                                                         # No such file
  } # firstFileThatExists
 
-sub fileInWindowsFormat($)                                                      # Convert a unix B<$file> name to windows format
+sub fileInWindowsFormat($)                                                      # Convert a unix B<$file> name to windows format.
  {my ($file) = @_;                                                              # File
   $file =~ s(\/) (\\)gsr
  }
@@ -402,15 +414,15 @@ sub fileInWindowsFormat($)                                                      
 
 #D3 Fusion                                                                      # Create file names from file name components.
 
-sub onWindows                                                                   #P Are we on windows
+sub onWindows                                                                   #P Are we on windows.
  {$^O =~ m(MSWin32)
  }
 
-sub onMac                                                                       #P Are we on mac
+sub onMac                                                                       #P Are we on mac.
  {$^O =~ m(darwin)
  }
 
-sub filePathSeparatorChar                                                       #P File path separator
+sub filePathSeparatorChar                                                       #P File path separator.
  {onWindows ? '\\' : '/';
  }
 
@@ -424,7 +436,7 @@ sub renormalizeFolderName($)                                                    
   ($name =~ s([\/\\]+\Z) ()gsr).filePathSeparatorChar;                          # Put a trailing / on the folder name
  }
 
-sub prefferedFileName($)                                                        #P Normalize a file name
+sub prefferedFileName($)                                                        #P Normalize a file name.
  {my ($name) = @_;                                                              # Name
   onWindows ? $name =~ s([\/\\]+) (\\)gsr :
               $name =~ s([\/\\]+)  (/)gsr ;
@@ -588,7 +600,7 @@ sub removeDuplicatePrefixes($)                                                  
   join "/", $p, @p;
  } # removeDuplicatePrefixes
 
-sub containingFolderName($)                                                     # The name of a folder containing a file
+sub containingFolderName($)                                                     # The name of a folder containing a file.
  {my ($file) = @_;                                                              # File name
   my @p = split m(/), $file;
   return $p[-2] if @p > 1;
@@ -610,7 +622,7 @@ sub currentDirectoryAbove                                                       
   filePathDir("/$r", @path);
  } # currentDirectoryAbove
 
-sub parseFileName($)                                                            # Parse a file name into (path, name, extension) considering .. to be always part of the path and using B<undef> to mark missing components.  This differs from (fp, fn, fe) which return q() for missing components and do not interpret . or .. as anything special
+sub parseFileName($)                                                            # Parse a file name into (path, name, extension) considering .. to be always part of the path and using B<undef> to mark missing components.  This differs from (fp, fn, fe) which return q() for missing components and do not interpret . or .. as anything special.
  {my ($file) = @_;                                                              # File name to parse
   defined($file) or confess "File required";
   return ($file) if $file =~ m{\/\Z}s or $file =~ m/\.\.\Z/s;                   # Its a folder
@@ -684,7 +696,7 @@ sub absFromAbsPlusRel($$)                                                       
   $r =~ s(\A\./)   ();                                                          # Remove any leading ./ from relative file
   $r =~ s(\.\.\Z)  (../);                                                       # Make trailing .. into a folder
 
-  my $R = qq($a$r);                                                             # Combine and ...
+  my $R = qq($a$r);                                                             # Combine and .
   undef while $R =~ s([^/]+/\.\./) ();                                          # Squeeze out jumps
 
   $R
@@ -728,7 +740,7 @@ sub findAllFilesAndFolders($$)                                                  
  {my ($folder, $dirs) = @_;                                                     # Folder to start the search with, true if only folders are required
   my @files;                                                                    # Files
 
-  if (onWindows)                                                                # windows
+  if (onWindows)
    {my $c = qq(powershell Get-ChildItem -Recurse -Name $folder ).
      ($dirs ? '-Directory' : '-File');
     my $r = qx($c);
@@ -791,7 +803,9 @@ sub searchDirectoryTreesForMatchingFiles(@)                                     
   for my $dir(@_)                                                               # Directories
    {next unless $dir && -d $dir;                                                # Do not include folder names
 
-    for my $d(findAllFilesAndFolders($dir, 0))                                  # All files and folders beneath each folder
+    my @f = findAllFilesAndFolders($dir, 0);                                    # All files and folders beneath each folder
+
+    for my $d(@f)
      {next if -d $d;                                                            # Do not include folder names
       push @file, $d if !$ext or $d =~ m(($ext)\Z)is;                           # Filter by extension if requested.
      }
@@ -799,7 +813,7 @@ sub searchDirectoryTreesForMatchingFiles(@)                                     
   @file                                                                         # Return files
  } # searchDirectoryTreesForMatchingFiles
 
-sub searchDirectoryTreeForSubFolders($)                                         #I Search the specified directory under the specified folder for sub folders
+sub searchDirectoryTreeForSubFolders($)                                         #I Search the specified directory under the specified folder for sub folders.
  {my ($folder) = @_;                                                            # The folder at which to start the search
   my @f;                                                                        # Folders found
   for my $d(findAllFilesAndFolders($folder, 0))                                 # All files and folders beneath the start folder
@@ -1119,7 +1133,7 @@ sub dumpFile($$)                                                                
   overWriteFile($file, dump($structure));
  } # dumpFile
 
-sub dumpTempFile($)                                                             # Dump a data structure to a temporary file and return the name of the file created
+sub dumpTempFile($)                                                             # Dump a data structure to a temporary file and return the name of the file created.
  {my ($structure) = @_;                                                         # Data structure to write
   writeFile(undef, dump($structure));
  } # dumpTempFile
@@ -1182,6 +1196,31 @@ sub readFiles(@)                                                                
   \%h
  } # readFiles
 
+sub includeFiles($)                                                             # Read the given file and expand all lines that start "includeThisFile " with the file named by the rest of the line and keep doing this until all the included files have been expanded or a repetition is detected.  Returns the expanded file or confesses if one of the included files cannot be located.
+ {my ($expand) = @_;                                                            # File to expand
+  my  %expanded;                                                                # Files already expanded
+
+  my @l = readFile $expand;                                                     # Read the first file
+  for my $i(1..99)                                                              # Limit on the number of expansion passes
+   {my @L; my $changed = 0;                                                     # Latest expansion
+    for my $l(@l)                                                               # Each line
+     {if ($l =~ m(\AincludeThisFile\s(.*)\Z))
+       {my $f = $1;
+        confess "No such file:\n$f\n"          unless -e $f;
+        confess "File already included:\n$f\n" if $expanded{$f}++;
+        push @L, readFile $f;
+        ++$changed;
+       }
+      else
+       {push @L, $l;
+       }
+     }
+    return @l unless $changed;                                                  # Return array of expanded lines if expansion is now complete
+    @l = @L;
+   }
+  confess "Expansion too deep";
+ } # includeFiles
+
 sub appendFile($$)                                                              # Append to B<$file> a B<$string> of L<unicode> content encoded with L<utf8>, creating the $file first if necessary. Return the name of the $file on success else confess. The $file being appended to is locked before the write with L<perlfunc/flock> to allow  multiple processes to append linearly to the same file.
  {my ($file, $string) = @_;                                                     # File to append to, string to append
   $file or confess "No file name supplied\n";
@@ -1225,7 +1264,7 @@ sub numberOfLinesInFile($)                                                      
   scalar split /\n/, readFile($file);                                           # Number of lines
  } # numberOfLinesInFile
 
-sub overWriteHtmlFile($$)                                                       # Write an L<html> file to /var/www/html and make it readable
+sub overWriteHtmlFile($$)                                                       # Write an L<html> file to /var/www/html and make it readable.
  {my ($file, $data) = @_;                                                       # Target file relative to /var/www/html, data to write
   my $s = writeTempFile($data);
   my $t = fpf(q(/var/www/html/), $file);
@@ -1233,7 +1272,7 @@ sub overWriteHtmlFile($$)                                                       
   unlink $s;
  }
 
-sub overWritePerlCgiFile($$)                                                    # Write a L<Perl> file to /usr/lib/cgi-bin and make it executable after checking it for syntax errors
+sub overWritePerlCgiFile($$)                                                    # Write a L<Perl> file to /usr/lib/cgi-bin and make it executable after checking it for syntax errors.
  {my ($file, $data) = @_;                                                       # Target file relative to /var/www/html, data to write
   my $s = writeTempFile($data);
   my $r = qx(perl -c $s 2>&1);
@@ -1289,7 +1328,7 @@ sub copyFileToFolder($$)                                                        
   writeFile fpf(fp($targetFolder), fne($source)), readFile $source;
  }
 
-sub nameFromStringMaximumLength {128}                                           #P Maximum length of a name generated from a string
+sub nameFromStringMaximumLength {128}                                           #P Maximum length of a name generated from a string.
 
 sub nameFromString($%)                                                          # Create a readable name from an arbitrary string of text.
  {my ($string, %options) = @_;                                                  # String, options
@@ -1338,7 +1377,7 @@ sub nameFromStringRestrictedToTitle($%)                                         
   firstNChars($name, $options{maximumLength} // nameFromStringMaximumLength);   # Limit the name length
  }
 
-sub uniqueNameFromFile($)                                                       # Create a unique name from a file name and the md5 sum of its content
+sub uniqueNameFromFile($)                                                       # Create a unique name from a file name and the md5 sum of its content.
  {my ($source) = @_;                                                            # Source file
   my $sourceFile = fn $source;                                                  # File name component
   return fne($source) if $sourceFile =~ m([0-9a-z]{32}\Z)is;                    # Name already normalized
@@ -1355,148 +1394,10 @@ sub nameFromFolder($)                                                           
   undef
  }
 
-sub copyFileMd5Normalized(;$$)                                                  # Normalize the name of the specified B<$source> file to the md5 sum of its content, retaining its current extension, while placing the original file name in a companion file if the companion file does not already exist.  If no B<$target> folder is supplied the file is renamed to its normalized form in situ, otherwise it is copied to the target folder and renamed there. A companion file for the B<$source> file is created by removing the extension of the normalized file and writing the original B<$source> file name to it unless such a file already exists as we assume that it contains the 'original' original name of the B<$source> file. If the B<$source> file is copied to a new location then the companion file is copied as well to maintain the link back to the original name of the file.
- {my ($source, $Target) = @_;                                                   # Source file, target folder or a file in the target folder
-  warn "Deprecated in favor of Dita::GB::Standard";
-  -e $source && !-d $source or
-    confess "Source file to normalize does not exist:\n$source";
-  my $target = fp($Target // $source);                                          # Target folder
-  my $sourceFile = fn $source;                                                  # File name component
-
-  if ($sourceFile =~ m([0-9a-z]{32}\Z)is)                                       # Name already normalized
-   {if (@_== 2)                                                                 # Copy source to new folder if necessary
-     {my $target = fpf(fp($Target), fne($source));
-      copyFile($source, $target);
-      my $id = setFileExtension($source);
-      my $od = setFileExtension($target);
-      if (!-e $od)
-       {if (-e $id)
-         {copyFile($id, $od);
-         }
-        else
-         {owf($od, $source);
-         }
-       }
-      return $target;                                                           # Normalized target
-     }
-    return $source;                                                             # File is already normalized
-   }
-
-  my $out = fpe($target, nameFromString(readFile($source)));                    # Create normalized name in new folder depending only on the content of the source file
-  my $id  = setFileExtension($source);                                          # Source companion file carrying original name
-  my $od  = setFileExtension($out);                                             # Target companion file carrying original name
-
-  if (!-e $out)                                                                 # Copy file unless it is already there - we know the target is correct because its name is normalized
-   {copyFile($source, $out);                                                    # Copy source to normalized target
-    if (-e $id)                                                                 # Copy or create companion file
-     {copyFile($id, $od);
-     }
-    elsif (!-e $od)
-     {owf($od, $source);                                                        # Create a companion file as none exists
-     }
-   }
-  $out                                                                          # Return normalized image file name
- }
-
-sub copyFileMd5NormalizedName($$@)                                              # Name a file using the GB Standard
- {my ($content, $extension, %options) = @_;                                     # Content, extension, options
-warn "Deprecated in favor of Dita::GB::Standard";
-  defined($content) or
-    confess "Content must be defined";
-  defined($extension) && $extension =~ m(\A\S{2,}\Z)s or
-    confess "Extension must be non blank and at least two characters long";
-  my $name   = nameFromString($content);                                        # Human readable component
-     $name   = nameFromStringRestrictedToTitle($content) if $options{titleOnly};# Not entirely satisfactory
-  my $md5    = stringMd5Sum($content);                                          # Md5 sum
-  fpe($name.q(_).$md5, $extension)                                              # Add extension
- }
-
-sub copyFileMd5NormalizedCreate($$$$@)                                          # Create a file in the specified B<$folder> whose name is constructed from the md5 sum of the specified B<$content>, whose content is B<$content>, whose extension is B<$extension> and which has a companion file with the same name minus the extension which contains the specified B<$companionContent>.  Such a file can be copied multiple times by L<copyFileMd5Normalized|/copyFileMd5Normalized> regardless of the other files in the target folders.
- {my ($Folder, $content, $extension, $companionContent, %options) = @_;         # Target folder or a file in that folder, content of the file, file extension, contents of the companion file, options.
-warn "Deprecated in favor of Dita::GB::Standard";
-  my $folder = fp $Folder;                                                      # Normalized folder name
-  my $name   = nameFromString($content);                                        # Entirely satisfactory
-     $name   = nameFromStringRestrictedToTitle($content) if $options{titleOnly};# Not entirely satisfactory
-  my $md5    = stringMd5Sum($content);
-  my $od     = fpf($folder, $name.q(_).$md5);                                   # Companion file
-  my $out    = fpe($od, $extension);                                            # Normalized file
-  owf($out, $content);                                                          # Write file content
-  owf($od,  $companionContent );                                                # Write companion file
-  $out
- }
-
-sub copyFileMd5NormalizedGetCompanionContent($)                                 # Return the content of the companion file to the specified B<$source> file after it has been normalized via L<copyFileMd5Normalized|/copyFileMd5Normalized> or L<copyFileMd5NormalizedCreate|/copyFileMd5NormalizedCreate> or return B<undef> if the corresponding companion file does not exist.
- {my ($source) = @_;                                                            # Source file.
-warn "Deprecated in favor of Dita::GB::Standard";
-  my $id = setFileExtension($source);
-  -e $source && -e $id ? readFile($id) : undef
- }
-
-sub copyFileMd5NormalizedDelete($)                                              # Delete a normalized and its companion file
- {my ($file) = @_;                                                              # File
-warn "Deprecated in favor of Dita::GB::Standard";
-  my $companion = setFileExtension($file);
-  unlink $_ for $companion, $file;
- }
-
-sub copyBinaryFile($$)                                                          # Copy the binary file B<$source> to a file named <%target> and return the target file name,
+sub copyBinaryFile($$)                                                          # Copy the binary file B<$source> to a file named <%target> and return the target file name,.
  {my ($source, $target) = @_;                                                   # Source file, target file
   overWriteBinaryFile($target, readBinaryFile($source));
-#  my $s = fileSize($source);                                                   # Appears to be unreliable across multiple CPUs
-#  my $t = fileSize($target);
-#  $s eq $t or confess
-#    "Copied binary file has a different size\n".formatTable
-#    ([[$s, $source], [$t, $target]], <<END);
-#Size Size of file
-#File Name of file
-#END
   $target
- }
-
-sub copyBinaryFileMd5Normalized($;$)                                            # Normalize the name of the specified B<$source> file to the md5 sum of its content, retaining its current extension, while placing the original file name in a companion file if the companion file does not already exist.  If no B<$target> folder is supplied the file is renamed to its normalized form in situ, otherwise it is copied to the target folder and renamed there. A companion file for the B<$source> file is created by removing the extension of the normalized file and writing the original B<$source> file name to it unless such a file already exists as we assume that it contains the 'original' original name of the B<$source> file. If the B<$source> file is copied to a new location then the companion file is copied as well to maintain the link back to the original name of the file.
- {my ($source, $Target) = @_;                                                   # Source file, target folder or a file in the target folder
-warn "Deprecated in favor of Dita::GB::Standard";
-  -e $source or confess "File does not exist:\n$source\n";
-
-  return $source if fn($source) =~ m([0-9a-z]{32}\Z)is and @_ == 1;             # Name already normalized and no target
-
-  my $target = fp($Target);                                                     # Target folder
-  my $ext = fe($source);                                                        # Extension
-  my $out = fpe($target, $ext.q(_).fileMd5Sum($source), $ext);                  # Normalized name in new folder
-  my $id  = setFileExtension($source);                                          # Source companion file carrying original name
-  my $od  = setFileExtension($out);                                             # Target companion file carrying original name
-
-  if (!-e $out)                                                                 # Copy file unless it is already there - we know the target is correct because its name is normalized
-   {overWriteBinaryFile($out, readBinaryFile($source));
-    if (-e $id)                                                                 # Copy or create companion file
-     {copyFile($id, $od);
-     }
-    elsif (!-e $od)
-     {owf($od, $source);
-     }
-   }
-  $out                                                                          # Return normalized image file name
- }
-
-sub copyBinaryFileMd5NormalizedCreate($$$$)                                     # Create a file in the specified B<$folder> whose name is constructed from the md5 sum of the specified B<$content>, whose content is B<$content>, whose extension is B<$extension> and which has a companion file with the same name minus the extension  which contains the specified B<$companionContent>.  Such a file can be copied multiple times by L<copyBinaryFileMd5Normalized|/copyBinaryFileMd5Normalized> regardless of the other files in the target folders while retaining the original name information.
- {my ($Folder, $content, $extension, $companionContent) = @_;                   # Target folder or a file in that folder, content of the file, file extension, optional content of the companion file.
-warn "Deprecated in favor of Dita::GB::Standard";
-  my $folder = fp $Folder;                                                      # Normalized folder name
-  my $md5    = fileMd5Sum($content);                                            # Md5 sum of content
-  my $od     = fpf($folder, $extension.q(_).$md5);                              # Companion file
-  my $out    = fpe($od, $extension);                                            # Normalized file
-  owf($out, $content);                                                          # Write file content
-  owf($od, $companionContent);                                                  # Write companion file
-  -e $out or confess "Failed to create file $out";
-  -e $od  or confess "Failed to create companion file $od";
-  $out
- }
-
-sub copyBinaryFileMd5NormalizedGetCompanionContent($)                           # Return the original name of the specified B<$source> file after it has been normalized via L<copyBinaryFileMd5Normalized|/copyBinaryFileMd5Normalized> or L<copyBinaryFileMd5NormalizedCreate|/copyBinaryFileMd5NormalizedCreate> or return B<undef> if the corresponding companion file does not exist.
- {my ($source) = @_;                                                            # Source file.
-warn "Deprecated in favor of Dita::GB::Standard";
-  my $id = setFileExtension($source);
-  -e $source && -e $id ? readFile($id) : undef
  }
 
 sub copyFileToRemote($;$)                                                       # Copy the specified local B<$file> to the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
@@ -1590,6 +1491,16 @@ sub writeStructureTest($$)                                                      
   <<END;                                                                        # Format test
   is_deeply removeFilePathsFromStructure($expr),\n   $s;
 END
+ }
+
+sub subNameTraceBack()                                                          # Find the names of the calling subroutines and return them as a blank separated string of names.
+ {my @a;                                                                        # Calling subroutines found
+  for my $i(1..99)                                                              # Some reasonable limit to avoid runaways. Start one level up to avoid this subroutine appearing in the traceback.
+   {my @x = caller $i;                                                          # Stack frame
+    last unless @x;                                                             # Remove default package name
+    push @a, $x[3] =~ s(\Amain::) ()r;
+   }
+  join ' ', @a;                                                                 # Return subroutine list as a string of blank separated names
  }
 
 #D1 Images                                                                      # Image operations.
@@ -1722,7 +1633,7 @@ END
    }
  }
 
-sub convertDocxToFodt($$)                                                       # Convert a I<docx> B<$inputFile> file to a I<fodt> B<$outputFile> using B<unoconv> which must not be running elsewhere at the time.  L<Unoconv|/https://github.com/dagwieers/unoconv> can be installed via:\m  sudo apt install sharutils unoconv\mParameters:
+sub convertDocxToFodt($$)                                                       # Convert a I<docx> B<$inputFile> file to a I<fodt> B<$outputFile> using B<unoconv> which must not be running elsewhere at the time.  L<Unoconv|/https://github.com/dagwieers/unoconv> can be installed via:\m  sudo apt install sharutils unoconv\mParameters:.
  {my ($inputFile, $outputFile) = @_;                                            # Input file, output file
   return undef unless confirmHasCommandLineCommand(q(unoconv));                 # Confirm we have unoconv
   my $r = qx(unoconv -f fodt -o "$outputFile" "$inputFile");                    # Perform conversion
@@ -1730,7 +1641,7 @@ sub convertDocxToFodt($$)                                                       
  }
 
 # Tests in: /home/phil/perl/z/unoconv/testCutOutImagesInFodtFile.pl
-sub cutOutImagesInFodtFile($$$)                                                 # Cut out the images embedded in a B<fodt> file, perhaps produced via L<convertDocxToFodt|/convertDocxToFodt>, placing them in the specified folder and replacing them in the source file with:\m  <image href="$imageFile" outputclass="imageType">.\mThis conversion requires that you have both L<Imagemagick> and L<unoconv|/https://github.com/dagwieers/unoconv> installed on your system:\m    sudo apt install sharutils  imagemagick unoconv\mParameters:
+sub cutOutImagesInFodtFile($$$)                                                 # Cut out the images embedded in a B<fodt> file, perhaps produced via L<convertDocxToFodt|/convertDocxToFodt>, placing them in the specified folder and replacing them in the source file with:\m  <image href="$imageFile" outputclass="imageType">.\mThis conversion requires that you have both L<Imagemagick> and L<unoconv|/https://github.com/dagwieers/unoconv> installed on your system:\m    sudo apt install sharutils  imagemagick unoconv\mParameters:.
  {my ($inputFile, $outputFolder, $imagePrefix) = @_;                            # Input file,  output folder for images, a prefix to be added to image file names
   my $source = readFile($inputFile);                                            # Read .fodt file
   lll "Start image location in string of ", length($source);
@@ -1869,12 +1780,12 @@ my @translatePercentEncoding =
 my %translatePercentEncoding =         @translatePercentEncoding;
 my %TranslatePercentEncoding = reverse @translatePercentEncoding;
 
-sub wwwEncode($)                                                                # Percent encode a L<url> per: https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_reserved_characters
+sub wwwEncode($)                                                                # Percent encode a L<url> per: https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_reserved_characters.
  {my ($string) = @_;                                                            # String
   join '', map {$translatePercentEncoding{$_}//$_} split //, $string
  }
 
-sub wwwDecode($)                                                                # Percent decode a L<url> B<$string> per: https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_reserved_characters
+sub wwwDecode($)                                                                # Percent decode a L<url> B<$string> per: https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_reserved_characters.
  {my ($string) = @_;                                                            # String
   my $r = '';
   my @s = split //, $string;
@@ -1910,6 +1821,39 @@ sub containingPowerOfTwo($)                                                     
    {return $_  if $n <= 1<<$_;
    }
   undef
+ }
+
+sub numberWithCommas($)                                                         # Place commas in a number.
+ {my ($n) = @_;                                                                 # Number to add commas to
+  scalar reverse join ',',  unpack("(A3)*", reverse $n);
+ }
+
+sub divideIntegersIntoRanges(@)                                                 # Divide an array of integers into ranges.
+ {my (@s) = @_;                                                                 # Integers to be divided into ranges
+
+  @s = sort {$a <=> $b} @s;                                                     # Sort array before splitting it into ranges
+  return [] unless @s;                                                          # An empty array has no ranges
+  my $r = [[shift @s]];                                                         # Start of first range
+
+  while(@s)                                                                     # Extend existing range or start a new one
+   {push @$r, [] if $s[0] != $$r[-1][-1] + 1;                                   # New range if necessary
+    push @{$$r[-1]}, shift @s;                                                  # Extend range
+   }
+  @$r                                                                           # Array of ranges
+ }
+
+sub divideCharactersIntoRanges($)                                               # Divide a string of characters into ranges.
+ {my ($s) = @_;                                                                 # String
+
+  my @s = sort split //, $s;                                                    # Sorted array of characters
+  return [] unless @s;                                                          # An empty array has no ranges
+  my $r = [[shift @s]];                                                         # Start of first range
+
+  while(@s)                                                                     # Extend existing range or start a new one
+   {push @$r, [] if ord($s[0]) != ord($$r[-1][-1]) + 1;                         # New range if necessary
+    push @{$$r[-1]}, shift @s;                                                  # Extend range
+   }
+  map {join '', @$_} @$r                                                        # Array of contiguous strings
  }
 
 #D2 Minima and Maxima                                                           # Find the smallest and largest elements of arrays.
@@ -1987,7 +1931,7 @@ sub arrayTimes($@)                                                              
 
 #D1 Sets                                                                        # Set operations.
 
-sub mergeHashesBySummingValues(@)                                               # Merge a list of hashes B<@h> by summing their values
+sub mergeHashesBySummingValues(@)                                               # Merge a list of hashes B<@h> by summing their values.
  {my (@h) = @_;                                                                 # List of hashes to be summed
   my %h;
   for my $h(@h)
@@ -1996,7 +1940,7 @@ sub mergeHashesBySummingValues(@)                                               
   \%h
  }
 
-sub invertHashOfHashes(@)                                                       # Invert a hash of hashes: given {a}{b} = c return {b}{c} = c
+sub invertHashOfHashes(@)                                                       # Invert a hash of hashes: given {a}{b} = c return {b}{c} = c.
  {my ($h) = @_;                                                                 # Hash of hashes
   my %i;                                                                        # Resulting inverted hash of hashes
   for   my $a(keys $h->%*)
@@ -2039,7 +1983,7 @@ sub intersectionOfHashKeys(@)                                                   
   \%i                                                                           # Intersection of all hashes
  }
 
-sub unionOfHashesAsArrays(@)                                                    # Form the union of the specified hashes B<@h> as one hash whose values are a array of corresponding values from each hash
+sub unionOfHashesAsArrays(@)                                                    # Form the union of the specified hashes B<@h> as one hash whose values are a array of corresponding values from each hash.
  {my (@h) = @_;                                                                 # List of hashes to be united
   my %u;                                                                        # Union
   for my $i(keys @h)                                                            # Each hash to be united
@@ -2053,7 +1997,7 @@ sub unionOfHashesAsArrays(@)                                                    
   \%u                                                                           # Union of all hashes
  }
 
-sub intersectionOfHashesAsArrays(@)                                             # Form the intersection of the specified hashes B<@h> as one hash whose values are an array of corresponding values from each hash
+sub intersectionOfHashesAsArrays(@)                                             # Form the intersection of the specified hashes B<@h> as one hash whose values are an array of corresponding values from each hash.
  {my (@h) = @_;                                                                 # List of hashes to be intersected
   my $N   = @h;                                                                 # Number of hashes
   my %n;                                                                        # Count of number of hashes that have each key
@@ -2071,7 +2015,7 @@ sub intersectionOfHashesAsArrays(@)                                             
   \%i                                                                           # Intersection of all hashes
  }
 
-sub setCombination(@)                                                           #P Count the elements in sets B<@s> represented as arrays of strings and/or the keys of hashes
+sub setCombination(@)                                                           #P Count the elements in sets B<@s> represented as arrays of strings and/or the keys of hashes.
  {my (@s) = @_;                                                                 # Array of arrays of strings and/or hashes
   my %e;
   for my $s(@s)                                                                 # Intersect each set
@@ -2096,20 +2040,20 @@ sub setCombination(@)                                                           
   \%e                                                                           # Count of each set member
  }
 
-sub setUnion(@)                                                                 # Union of sets B<@s> represented as arrays of strings and/or the keys of hashes
+sub setUnion(@)                                                                 # Union of sets B<@s> represented as arrays of strings and/or the keys of hashes.
  {my (@s) = @_;                                                                 # Array of arrays of strings and/or hashes
   my $e = setCombination(@_);
   sort keys %$e                                                                 # Return words in union
  }
 
-sub setIntersection(@)                                                          # Intersection of sets B<@s> represented as arrays of strings and/or the keys of hashes
+sub setIntersection(@)                                                          # Intersection of sets B<@s> represented as arrays of strings and/or the keys of hashes.
  {my (@s) = @_;                                                                 # Array of arrays of strings and/or hashes
   my $e = setCombination(@_);
   my $S = @s;                                                                   # Set count
   grep {$e->{$_} == $S} sort keys %$e                                           # Return words that appear in all the sets
  }
 
-sub setIntersectionOverUnion(@)                                                 # Returns the size of the intersection over the size of the union of one or more sets B<@s> represented as arrays and/or hashes
+sub setIntersectionOverUnion(@)                                                 # Returns the size of the intersection over the size of the union of one or more sets B<@s> represented as arrays and/or hashes.
  {my (@s) = @_;                                                                 # Array of arrays of strings and/or hashes
   my $e = setCombination(@_);                                                   # Set element count
   my $u = keys %$e;                                                             # Union size
@@ -2119,7 +2063,7 @@ sub setIntersectionOverUnion(@)                                                 
   $i/$u                                                                         # Return ratio
  }
 
-sub setPartitionOnIntersectionOverUnion($@)                                     # Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets in the partition is never less than the specified level of I<$confidence**2>
+sub setPartitionOnIntersectionOverUnion($@)                                     # Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets in the partition is never less than the specified level of I<$confidence**2>.
  {my ($confidence, @sets) = @_;                                                 # Minimum setIntersectionOverUnion, array of arrays of strings and/or hashes representing sets
   my @s = sort {scalar(@$b) <=> scalar(@$a)} map {[setUnion($_)]} @sets;        # Input sets as arrays in descending order of length
 
@@ -2143,7 +2087,7 @@ sub setPartitionOnIntersectionOverUnion($@)                                     
   @partition;                                                                   # Return partitions
  }
 
-sub setPartitionOnIntersectionOverUnionOfSetsOfWords($@)                        # Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> of words so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets of words in the partition is never less than the specified I<$confidence**2>
+sub setPartitionOnIntersectionOverUnionOfSetsOfWords($@)                        # Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> of words so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets of words in the partition is never less than the specified I<$confidence**2>.
  {my ($confidence, @sets) = @_;                                                 # Minimum setIntersectionOverUnion, array of arrays of strings and/or hashes representing sets
 
   my %u;                                                                        # Normalized set to input sets with this normalization
@@ -2165,7 +2109,7 @@ sub setPartitionOnIntersectionOverUnionOfSetsOfWords($@)                        
   @P
  }
 
-sub setPartitionOnIntersectionOverUnionOfStringSets($@)                         # Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@strings>, each set represented by a string containing words and punctuation, each word possibly capitalized, so that within each partition the L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> of any two sets of words in the partition is never less than the specified I<$confidence**2>
+sub setPartitionOnIntersectionOverUnionOfStringSets($@)                         # Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@strings>, each set represented by a string containing words and punctuation, each word possibly capitalized, so that within each partition the L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> of any two sets of words in the partition is never less than the specified I<$confidence**2>.
  {my ($confidence, @strings) = @_;                                              # Minimum setIntersectionOverUnion, sets represented by strings
 
   my %u;                                                                        # Normalized set to input sets with this normalization
@@ -2334,7 +2278,7 @@ sub partitionStringsOnPrefixBySize                                              
   %partition
  }
 
-sub transitiveClosure($)                                                        # Transitive closure of a hash of hashes
+sub transitiveClosure($)                                                        # Transitive closure of a hash of hashes.
  {my ($h) = @_;                                                                 # Hash of hashes
 
   my %keys = arrayToHash(keys %$h)->%*;                                         # Find all the keys to consider
@@ -2360,7 +2304,7 @@ sub transitiveClosure($)                                                        
     for   my $a(keys %keys)
      {for my $b(keys %keys)
        {if ($t{$a}{$b})
-         {$t{$b}{$_} and !$t{$a}{$_}++ and ++$changes for keys %keys            # a=>b and b=>c so a=>c
+         {$t{$b}{$_} and !$t{$a}{$_}++ and ++$changes for keys %keys            # From a=>b and b=>c infer a=>c
          }
        }
      }
@@ -2479,7 +2423,7 @@ sub formatTableBasic($)                                                         
   join("\n", @text)."\n"
  }
 
-sub formatTableClearUpLeft($)                                                   #P Blank identical column values up and left
+sub formatTableClearUpLeft($)                                                   #P Blank identical column values up and left.
  {my ($data) = @_;                                                              # Array of arrays
 
   for   my $row(1..@$data)                                                      # Each row from last to first
@@ -2593,9 +2537,9 @@ sub formatTableH($;$)                                                           
   formatTableBasic($d);
  }
 
-our @formatTables;                                                              # tttt Report of all the reports that have been created
+our @formatTables;                                                              # Report of all the reports that have been created
 
-sub formatTableCheckKeys                                                        #P Options available for formatting tables
+sub formatTableCheckKeys                                                        #P Options available for formatting tables.
  {{title       => <<'END',
 Title for the table
 END
@@ -2646,7 +2590,7 @@ The maximum width permitted for a column, defaults to unlimited.
 END
  }} # formatTableCheckKeys
 
-sub formatTable($;$%)                                                           #I Format various B<$data> structures as a table with titles as specified by B<$columnTitles>: either a reference to an array of column titles or a string each line of which contains the column title as the first word with the rest of the line describing that column.\mOptionally create a report from the table using the report B<%options> described in L<formatTableCheckKeys>
+sub formatTable($;$%)                                                           #I Format various B<$data> structures as a table with titles as specified by B<$columnTitles>: either a reference to an array of column titles or a string each line of which contains the column title as the first word with the rest of the line describing that column.\mOptionally create a report from the table using the report B<%options> described in L<formatTableCheckKeys>.
  {my ($data, $columnTitles, @options) = @_;                                     # Data to be formatted, optional reference to an array of titles or string of column descriptions, options
 
   my %options = sub                                                             # Make column titles an option so that the options list is easily reused. The original arrangement where column titles were a separate (optional) parameter will eventually be deprecated. To make this work, columns=> has to be the first option.
@@ -2703,7 +2647,7 @@ sub formatTable($;$%)                                                           
 
   return $formattedTable unless keys %options;                                  # Return table as is unless report requested
 
-  my ($Title, $head, $foot, $file, $zero, $summarize, $wide, $msg, $csv, $zwsp, $indent) = map{$options{$_}} # Options requested
+  my ($Title, $head, $foot, $file, $zero, $summarize, $wide, $msg, $csv, $zwsp, $indent) = map{$options{$_}}
     qw(title   head   foot   file   zero   summarize   wide   msg   csv   zwsp   indent);
 
   my @report;
@@ -2783,7 +2727,7 @@ END
   $report
  } # formatTable
 
-sub formattedTablesReport(@)                                                    # Report of all the reports created. The optional parameters are the same as for L<formatTable|/formatTable>
+sub formattedTablesReport(@)                                                    # Report of all the reports created. The optional parameters are the same as for L<formatTable|/formatTable>.
  {my (@options) = @_;                                                           # Options
 
   formatTable([sort {($a->[1]//'') cmp ($b->[1]//'')} @formatTables], <<END,
@@ -2910,7 +2854,7 @@ sub formatHtmlTablesIndex($$$;$)                                                
  {my ($reports, $title, $url, $columns) = @_;                                   # Reports folder, title of report of reports, $url to get files, number of columns - defaults to 1
   $columns //= 1;
 
-  my %reports = sub                                                             # {file=>options} for each html report
+  my %reports = sub                                                             # Hash {file=>options} for each html report
    {my @r = searchDirectoryTreesForMatchingFiles($reports, q(.html));           # Find all html reports
     my %r;
     for my $r(@r)                                                               # Each html report
@@ -2950,7 +2894,7 @@ sub formatHtmlTablesIndex($$$;$)                                                
 
   my $tocs    = @toc;
 # my @tocs    = rectangularArray(int(@toc / $columns), @toc);                   # Divide into columns
-  my @tocs    = rectangularArray2($columns, @toc);                               # Divide into columns
+  my @tocs    = rectangularArray2($columns, @toc);                              # Divide into columns
   my $toc     = join "\n", map {q(<tr>).join ' ', @$_} @tocs;
   my $dt      = dateTimeStamp;                                                  # Date of run
   my $t       = $title ? qq(<h1>$title</h1>) : q();                             # Title if present
@@ -3028,11 +2972,11 @@ END
 
 my @formatHtmlAndTextTablesPids;                                                # Pids used to format tables in parallel
 
-sub formatHtmlAndTextTablesWaitPids                                             # Wait on all table formatting pids to complete
+sub formatHtmlAndTextTablesWaitPids                                             # Wait on all table formatting pids to complete.
  {waitpid $_, 0 for @formatHtmlAndTextTablesPids;
  }
 
-sub formatHtmlAndTextTables($$$$$%)                                             # Create text and html versions of a tabular report
+sub formatHtmlAndTextTables($$$$$%)                                             # Create text and html versions of a tabular report.
  {my ($reports, $html, $getFile, $filePrefix, $data, %options) = @_;            # Folder to contain text reports, folder to contain html reports, L<url> to get files, file prefix to be removed from file entries or array of file prefixes, data, options
 
   my @prefix  = ref($filePrefix) ? @$filePrefix : $filePrefix;                  # Flatten file prefixes into array
@@ -3225,19 +3169,22 @@ sub genHash($%)                                                                 
               "an X method with the same name: $m\n";
      }
 
-    my $R = reftype($attributes{$m});                                           # Type of thing referred to
-    my $r = !defined($R) ? q() : $R =~ m(array)i ? q( //= []) : q( //= {});     # Empty return type
+    my $R = ref($attributes{$m});                                               # Type of thing referred to
+    my $r = !defined($R) ? q()
+     : $R =~ m(array)i   ? q( //= [])
+     : $R =~ m(hash)i    ? q( //= {})
+     : q();                                                                     # Empty return type
     my $s = '';
     $s .= 'sub '.$bless.'::'.$m. ':lvalue {$_[0]{"'.$m.qq("}$r})."\n";          # LValue version for get and set
-    $s .= 'sub '.$bless.'::'.$m. 'X       {$_[0]{"'.$m.'"}//q()}'."\n";         # Default to blank for get
+#   $s .= 'sub '.$bless.'::'.$m. 'X       {$_[0]{"'.$m.'"}//q()}'."\n";         # Default to blank for get
     if ($s)                                                                     # Add any new methods needed
      {eval $s;
       confess "$@\n$s\n$@" if $@;
      }
-    $genHash{$M}++;                                                             # Record attribute as being created by genHash
+    $genHash{$M}++;                                                             # Record attribute as being created by genHash so we can safely reuse them on subsequent calls
    }
 
-  $h
+  $h                                                                            # Hash with field methods attached
  }
 
 sub loadHash($%)                                                                # Load the specified blessed B<$hash> generated with L<genHash|/genHash> with B<%attributes>. Confess to any unknown attribute names.
@@ -3343,7 +3290,7 @@ END
 
 sub isSubInPackage($$)                                                          # Test whether the specified B<$package> contains the subroutine <$sub>.
  {my ($package, $sub) = @_;                                                     # Package name, subroutine name
-  my $r = eval qq(defined(&${package}::${sub}));                                # hasSub containsSub
+  my $r = eval qq(defined(&${package}::${sub}));
   $@ and confess $@;
   $r
  }
@@ -3411,7 +3358,7 @@ END
   confess "$@\n$s\n" if $@;
  }
 
-sub assertPackageRefs($@)                                                       # Confirm that the specified references are to the specified package
+sub assertPackageRefs($@)                                                       # Confirm that the specified references are to the specified package.
  {my ($package, @refs) = @_;                                                    # Package, references
   for(@refs)                                                                    # Check each reference
    {my $r = ref($_);
@@ -3430,7 +3377,7 @@ sub assertRef(@)                                                                
   1
  }
 
-sub arrayToHash(@)                                                              # Create a hash reference from an array
+sub arrayToHash(@)                                                              # Create a hash reference from an array.
  {my (@array) = @_;                                                             # Array
  +{map{$_=>1} @array}
  }
@@ -3481,7 +3428,7 @@ sub indentString($$)                                                            
   join "\n", map {$indent.$_} split m(\n+), (ref($string) ? $$string  : $string)
  }
 
-sub replaceStringWithString($$$)                                                # Replace all instances in B<$string> of B<$source> with B<$target>
+sub replaceStringWithString($$$)                                                # Replace all instances in B<$string> of B<$source> with B<$target>.
  {my ($string, $source, $target) = @_;                                          # String in which to replace substrings, the string to be replaced, the replacement string
   for(1..(1+length($string) / (length($source)+1)))                             # Avoid too much recursive expansion
    {my $i = index($string, $source);
@@ -3583,7 +3530,7 @@ sub nws($;$)                                                                    
   firstNChars($s, $length)                                                      # Apply maximum length if requested
  }
 
-sub deduplicateSequentialWordsInString($)                                       # Remove sequentially duplicate words in a string
+sub deduplicateSequentialWordsInString($)                                       # Remove sequentially duplicate words in a string.
  {my ($s) = @_;                                                                 # String to deduplicate
   my %a = map {$_=>1} grep {$_} split /\W+/, $s;                                # Split into words
   for my $w(sort keys %a)
@@ -3592,7 +3539,7 @@ sub deduplicateSequentialWordsInString($)                                       
   $s
  }
 
-sub detagString($)                                                              # Remove L<html> or L<xml> tags from a string
+sub detagString($)                                                              # Remove L<html> or L<xml> tags from a string.
  {my ($string) = @_;                                                            # String to detag
   $string =~ s(<[^>]*>) ()gsr                                                   # Remove xml/html tags
  }
@@ -3613,10 +3560,10 @@ sub parseIntoWordsAndStrings($)                                                 
    {next if $s == 0 and $c =~ m(\s);                                            # Skip spaces while looking for a word or string
 
     if ($s == 0)                                                                # String
-     {if    ($c =~ m('))                                                        # ' string
+     {if    ($c =~ m('))                                                        # Single quoted ' string
        {$r = ''; $s = 2;
        }
-      elsif ($c =~ m("))                                                        # " string
+      elsif ($c =~ m("))                                                        # Double quoted " string
        {$r = ''; $s = 3;
        }
       else                                                                      # Word
@@ -3663,7 +3610,7 @@ sub stringsAreNotEqual($$)                                                      
   (join(q(), @c), join(q(), @a), join(q(), @b))
  }
 
-sub showGotVersusWanted($$)                                                     # Show the difference between the wanted string and the wanted string
+sub showGotVersusWanted($$)                                                     # Show the difference between the wanted string and the wanted string.
  {my ($g, $e) = @_;                                                             # First string, second string
   my @s;
   if ($g ne $e)
@@ -3721,7 +3668,7 @@ sub perlPackage($)                                                              
   $p
  }
 
-sub javaScriptExports($)                                                        # Extract the Javascript functions marked for export in a file or string.  Functions are marked for export by placing function in column 1 followed by //E on the same line.  The end of the exported function is located by \n }
+sub javaScriptExports($)                                                        # Extract the Javascript functions marked for export in a file or string.  Functions are marked for export by placing function in column 1 followed by //E on the same line.  The end of the exported function is located by \n }.
  {my ($fileOrString) = @_;                                                      # File or string
   my $s = $fileOrString =~ m(\n) ? $fileOrString : readFile($fileOrString);
   my @s;
@@ -3747,7 +3694,7 @@ sub chooseStringAtRandom(@)                                                     
   $strings[$r]
  }
 
-sub randomizeArray(@)                                                           # Randomize an array
+sub randomizeArray(@)                                                           # Randomize an array.
  {my (@a) = @_;                                                                 # Array to randomize
   for my $i(keys @a)
    {my $r = int(rand() * ($i+1));                                               # Uniform randomization
@@ -3766,7 +3713,7 @@ sub lengthOfLongestSubArray($)                                                  
   max map{scalar @$_} @$a
  }
 
-sub cmpArrays($$)                                                               # Compare two arrays of strings
+sub cmpArrays($$)                                                               # Compare two arrays of strings.
  {my ($a, $b) = @_;                                                             # Array A, array B
   my @a = @$a;
   my @b = @$b;
@@ -3779,7 +3726,25 @@ sub cmpArrays($$)                                                               
   0
  }
 
-sub forEachKeyAndValue(&%)                                                      # Iterate over a hash for each key and value
+sub compareArraysAndExplain($$)                                                 # Compare two arrays of strings and provide an explanation as to why they differ if they differ or undef if they do not.
+ {my ($A, $B) = @_;                                                             # Array A, array B
+  my @a = @$A; my $a = @a;
+  my @b = @$B; my $b = @b;
+  my $ab = min($a, $b);
+  for my $i(0..$ab-1)
+   {next if dump($a[$i]) eq dump($b[$i]);
+    return "Differs at index $i:\n$a[$i]\n$b[$i]\n";
+   }
+  if ($a > $ab)
+   {return "First array has an additional line at index: $ab\n$a[$ab]\n";
+   }
+  if ($b > $ab)
+   {return "Second array has an additional line at index: $ab\n$b[$ab]\n";
+   }
+  undef
+ }
+
+sub forEachKeyAndValue(&%)                                                      # Iterate over a hash for each key and value.
  {my ($body, %hash) = @_;                                                       # Body to be executed, hash to be iterated
   &$body($_, $hash{$_}) for sort keys %hash;
  }
@@ -3817,7 +3782,7 @@ sub mathematicalBoldString($)                                                   
   $string
  }
 
-sub mathematicalBoldStringUndo($)                                               # Undo alphanumerics in a string to L<unicode> Mathematical Bold..
+sub mathematicalBoldStringUndo($)                                               # Undo alphanumerics in a string to L<unicode> Mathematical Bold.
  {my ($string) = @_;                                                            # String to convert
   eval qq(\$string =~ tr($mathematicalBold) ($normalAlphaString));
   $string
@@ -3931,31 +3896,31 @@ sub enclosedReversedStringUndo($)                                               
   $string
  }
 
-sub superScriptString($)                                                        # Convert alphanumerics in a string to super scripts
+sub superScriptString($)                                                        # Convert alphanumerics in a string to super scripts.
  {my ($string) = @_;                                                            # String to convert
   eval qq(\$string =~ tr($normalString) ($superString));
   $string
  }
 
-sub superScriptStringUndo($)                                                    # Undo alphanumerics in a string to super scripts
+sub superScriptStringUndo($)                                                    # Undo alphanumerics in a string to super scripts.
  {my ($string) = @_;                                                            # String to convert
   eval qq(\$string =~ tr($superString)  ($normalString));
   $string
  }
 
-sub subScriptString($)                                                          # Convert alphanumerics in a string to sub scripts
+sub subScriptString($)                                                          # Convert alphanumerics in a string to sub scripts.
  {my ($string) = @_;                                                            # String to convert
   eval qq(\$string =~ tr($lowerString)  ($lowsubString));
   $string
  }
 
-sub subScriptStringUndo($)                                                      # Undo alphanumerics in a string to sub scripts
+sub subScriptStringUndo($)                                                      # Undo alphanumerics in a string to sub scripts.
  {my ($string) = @_;                                                            # String to convert
   eval qq(\$string =~ tr($lowsubString) ($lowerString));
   $string
  }
 
-sub isFileUtf8($)                                                               # Return the file name quoted if its contents are in utf8 else return undef
+sub isFileUtf8($)                                                               # Return the file name quoted if its contents are in utf8 else return undef.
  {my ($file) = @_;                                                              # File to test
   my $f = quoteFile($file);
 
@@ -3999,10 +3964,10 @@ sub convertUtf8ToUtf32($)                                                       
   confess "Invalid utf8 code: ".sprintf("%08x", $c). "\n";
  }
 
-sub convertUtf32ToUtf8($)                                                       # Convert a number representing a single unicode point coded in utf32 to utf8.
+sub convertUtf32ToUtf8($)                                                       # Convert a number representing a single unicode point coded in utf32 to utf8 big endian.
  {my ($c) = @_;                                                                 # Unicode point encoded as utf32
 
-  return $c if $c <= (1<<7);                                                     # Ascii
+  return $c if $c <= (1<<7);                                                    # Ascii
 
   if ($c <= (1 << 11))                                                          # 2 bytes
    {my $d = ($c >> 0) & 0x3f;
@@ -4027,6 +3992,129 @@ sub convertUtf32ToUtf8($)                                                       
    }
 
   confess "Invalid utf32 code: $c";
+ }
+
+sub convertUtf32ToUtf8LE($)                                                     # Convert a number representing a single unicode point coded in utf32 to utf8 little endian.
+ {my ($c) = @_;                                                                 # Unicode point encoded as utf32
+
+  return $c if $c <= (1<<7);                                                    # Ascii
+
+  if ($c <= (1 << 11))                                                          # 2 bytes
+   {my $d = ($c >> 0) & 0x3f;
+       $c = ($c >> 6);
+    return ($c) | ($d<<8) | 0x80C0;
+   }
+
+  if ($c <= (1 << 16))                                                          # 3 bytes
+   {my $e = ($c >>  0) & 0x3f;
+    my $d = ($c >>  6) & 0x3f;
+       $c = ($c >> 12);
+
+    return ($c) | ($d<<8) | ($e<<16) | 0x8080E0
+   }
+
+  if ($c <= (1 << 21))                                                          # 4 bytes
+   {my $f = ($c >>  0) & 0x3f;
+    my $e = ($c >>  6) & 0x3f;
+    my $d = ($c >> 12) & 0x3f;
+       $c = ($c >> 18);
+    return ($c) | ($d<<8) | ($e<<16) | ($f<<24) | 0x808080F0
+   }
+
+  confess "Invalid utf32 code: $c";
+ }
+
+#D1 System Constants                                                            # Extract system constants
+
+my %getSystemConstantsFromIncludeFile;                                          # Cache system constants
+
+sub getSystemConstantsFromIncludeFile($@)                                       # Get the value of the named system constants from an include file.
+ {my ($file, @constants) = @_;                                                  # File to read, constants to get
+
+  my %i;                                                                        # Unknown constants
+  my %o;                                                                        # Known constants
+  for my $c(@constants)                                                         # Classify constants requested between known and unknown
+   {if (my $r = $getSystemConstantsFromIncludeFile{$c})
+     {$o{$c} = $r;
+     }
+    else
+     {$i{$c}++
+     }
+   }
+
+  my @code = <<END;                                                             # Program to get constants we do not already have
+#include <$file>
+#include <stdio.h>
+int main(void) {
+  printf("{\\n");
+END
+
+  for my $c(sort keys %i)                                                       # Constants we still need
+   {push @code, <<END
+printf("\\\"$c\\\" => %ld,\\n", (long)$c);
+END
+   }
+
+  push @code, <<END;
+  printf("}\\n");
+  return 0;
+ }
+END
+  my $C = &getCCompiler;                                                        # Get C compiler
+  my $c = owf(q(zzzTemporary.c), join "\n", @code);                             # Write and run a program to get the values
+  my $r = eval qx($C $c; chmod ugo+x a.out; ./a.out; rm a.out);
+  unlink $c;
+  for my $c(sort keys %$r)                                                      # Update known constants
+   {$o{$c} = $getSystemConstantsFromIncludeFile{$c} = $$r{$c}
+   }
+
+  %o
+ }
+
+my %getStructureSizeFromIncludeFile;                                            # Cache system structure sizes
+
+sub getStructureSizeFromIncludeFile($$)                                         # Get the size of a system structure from an include file.
+ {my ($file, $structure) = @_;                                                  # File to read, structure name
+
+  return      $getStructureSizeFromIncludeFile{$structure}
+    if exists $getStructureSizeFromIncludeFile{$structure};
+
+  my @code = <<END;                                                             # Program to get constants we do not already have
+#include <$file>
+#include <stdio.h>
+int main(void) {
+  printf("%ld\\n", (long)sizeof($structure));
+  return 0;
+ }
+END
+
+  my $C = &getCCompiler;                                                        # Get C compiler
+  my $c = owf(q(zzzTemporary.c), join "\n", @code);                             # Write and run a program to get the values
+  my $r = eval qx($C $c; chmod ugo+x a.out; ./a.out; rm a.out);
+  $getStructureSizeFromIncludeFile{$c} = $r;
+ }
+
+my %getFieldOffsetInStructureFromIncludeFile;                                   # Cache system field offsets
+
+sub getFieldOffsetInStructureFromIncludeFile($$$)                               # Get the offset of a field in a system structures from an include file.
+ {my ($file, $structure, $field) = @_;                                          # File to read, structure name, field name
+
+  return      $getFieldOffsetInStructureFromIncludeFile{$structure}
+    if exists $getFieldOffsetInStructureFromIncludeFile{$structure};
+
+  my @code = <<END;                                                             # Program to get constants we do not already have
+#include <$file>
+#include <stdio.h>
+int main(void) {
+  printf("%ld\\n", (long)&((($structure *)0)->$field));
+  return 0;
+ }
+END
+
+  my $C = &getCCompiler;                                                        # Get C compiler
+  my $c = owf(q(zzzTemporary.c), join "\n", @code);                             # Write and run a program to get the values
+  my $r = eval qx($C $c; chmod ugo+x a.out; ./a.out; rm a.out);
+  $getFieldOffsetInStructureFromIncludeFile{$c} = $r;
  }
 
 #D1 Unix domain communications                                                  # Send messages between processes via a unix domain socket.
@@ -4275,7 +4363,7 @@ END
 
 #D2 www                                                                         # Web processing
 
-sub wwwHeader {say STDOUT qq(Content-Type: text/html;charset=UTF-8\n\n)}        # Html header
+sub wwwHeader {say STDOUT qq(Content-Type: text/html;charset=UTF-8\n\n)}        # Html header.
 
 sub wwwGitHubAuth(&$$$$)                                                        # Logon as a L<GitHub> L<OAuth> app per: L<https://github.com/settings/developers>. If no L<OAuth> code is supplied then a web page is printed that allows the user to request that such a code be sent to the server.  If a valid code is received, by the server then it is converted to a L<OAuth> token which is handed to L<sub> L<saveUserDetails>.
  {my ($saveUserDetails, $clientId, $clientSecret, $code, $state) = @_;          # Process user token once obtained from GitHub, Client id, client secret, authorization code, random string
@@ -4314,35 +4402,30 @@ HTML
 
 #D1 Cloud Cover                                                                 # Useful for operating across the cloud.
 
-sub makeDieConfess                                                              # Force die to confess where the death occurred
+sub makeDieConfess                                                              # Force die to confess where the death occurred.
  {$SIG{__DIE__} = sub
    {local $SIG{__DIE__} = undef;
     confess shift;
    };
  }
 
-sub ipAddressOfHost($)                                                          # Get the first ip address of the specified host via Domain Name Services
+sub ipAddressOfHost($)                                                          # Get the first ip address of the specified host via Domain Name Services.
  {my ($host) = @_;                                                              # Host name
   my $i = inet_aton $host;
   confess "Unable to get ip address of hist: $host\n" unless $i;
   return inet_ntoa $i;
  }
 
-sub awsIpFile {q(/tmp/awsPrimaryInstanceIpAddress.data)}                        #P File in which to save IP address of primary instance on Aws
-sub awsEc2DescribeInstancesCache {q(/tmp/awsEc2DescribeInstancesCache.data)}    #P File in which to cache latest results from describe instances to avoid being throttled
+sub awsIpFile {q(/tmp/awsPrimaryInstanceIpAddress.data)}                        #P File in which to save IP address of primary instance on Aws.
+sub awsEc2DescribeInstancesCache {q(/tmp/awsEc2DescribeInstancesCache.data)}    #P File in which to cache latest results from describe instances to avoid being throttled.
 
 sub awsIp                                                                       # Get ip address of server at L<AWS>.
- {for(1..2)
-   {if (-e awsIpFile)
-     {if (my $d = eval {retrieveFile(awsIpFile)})
-       {if ($d->{time} + 180 > time)
-         {return $d->{ip};
-         }
-       }
-     }
-    &awsParallelPrimaryInstanceId();
+ {if (-e awsIpFile)
+   {my $d = eval {retrieveFile(awsIpFile)};
+    confess $@ if $@;
+    return $d->{ip};
    }
-  confess "Unable to get primary instance IP address\n";
+  confess "Unable to get IP address\n";
  }
 
 sub saveAwsIp                                                                   # Make the server at L<aws> with the given IP address the default primary server as used by all the methods whose names end in B<r> or B<Remote>. Returns the given IP address.
@@ -4396,25 +4479,25 @@ sub       awsCurrentInstanceType                                                
          $awsCurrentInstanceType = awsMetaData(q(instance-type))
  }
 
-sub awsInstanceId(%)                                                            #P Create an instance-id from the specified B<%options>
+sub awsInstanceId(%)                                                            #P Create an instance-id from the specified B<%options>.
  {my (%options) = @_;                                                           # Options
   return q() unless my $i = $options{instanceId} // awsCurrentInstanceId;       # Instance id if supplied or we are on AWS
-  qq( --instance-id $i );                                                       # instance-id keyword
+  qq( --instance-id $i );                                                       # Instance-id keyword
  }
 
-sub awsProfile(%)                                                               #P Create a profile keyword from the specified B<%options>
+sub awsProfile(%)                                                               #P Create a profile keyword from the specified B<%options>.
  {my (%options) = @_;                                                           # Options
   return q() unless my $p = $options{profile};                                  # Profile value
   qq( --profile $p );                                                           # Profile keyword
  }
 
-sub awsRegion(%)                                                                #P Create a region keyword from the specified B<%options>
+sub awsRegion(%)                                                                #P Create a region keyword from the specified B<%options>.
  {my (%options) = @_;                                                           # Options
   return q() unless my $r = $options{region} // awsCurrentRegion;               # Region value if supplied or we are on AWS
   qq( --region $r );                                                            # Region keyword
  }
 
-sub awsExecCli($%)                                                              # Execute an AWs command and return its response
+sub awsExecCli($%)                                                              # Execute an AWs command and return its response.
  {my ($command, %options) = @_;                                                 # Command to execute, aws cli options
   $command =~ s(\n) ( )gs;                                                      # Make command into one line
   my $p = awsProfile(%options);                                                 # Profile to use
@@ -4424,7 +4507,7 @@ sub awsExecCli($%)                                                              
   qx($c 2>&1);                                                                  # Execute
  }
 
-sub awsExecCliJson($%)                                                          # Execute an AWs command and decode the json so produced
+sub awsExecCliJson($%)                                                          # Execute an AWs command and decode the json so produced.
  {my ($command, %options) = @_;                                                 # Command to execute, aws cli options
   $command =~ s(\n) ( )gs;                                                      # Make command into one line
   my $p = awsProfile(%options);                                                 # Profile to use
@@ -4538,7 +4621,7 @@ sub awsEc2DescribeImages(%)                                                     
  }
 
 my $awsCurrentLinuxSpotPrices;                                                  # Prices do not change very rapidly on the whole
-sub awsCurrentLinuxSpotPrices(%)                                                # Return {instance type} = cheapest spot price in dollars per hour for the given region
+sub awsCurrentLinuxSpotPrices(%)                                                # Return {instance type} = cheapest spot price in dollars per hour for the given region.
  {my (%options) = @_;                                                           # Options
   return $awsCurrentLinuxSpotPrices if $awsCurrentLinuxSpotPrices;              # Return cached set
 
@@ -4553,7 +4636,7 @@ sub awsCurrentLinuxSpotPrices(%)                                                
   my $j = qx($c);
   my $d = decodeJson($j);
 
-  my %h;                                                                        # {instance type} = cheapest spot
+  my %h;                                                                        # Hash of {instance type} = cheapest spot
   for my $s(@$d)
    {my $i = $s->{InstanceType};
     my $p = $s->{SpotPrice};
@@ -4719,8 +4802,8 @@ sub awsEc2Tag($$$%)                                                             
  }
 
 my %confirmHasCommandLineCommand;                                               # Cache responses from which
-sub confirmHasCommandLineCommand($)                                             # Check that the specified b<$cmd> is present on the current system.  Use $ENV{PATH} to add folders containing commands as necessary.
- {my ($cmd) = @_;                                                               # Command to check for
+sub confirmHasCommandLineCommand($;$)                                           # Check that the specified b<$cmd> is present on the current system.  Use $ENV{PATH} to add folders containing commands as necessary.
+ {my ($cmd, $noComplaints) = @_;                                                # Command to check for, do not complain if not found if this is true
   return 1 if $confirmHasCommandLineCommand{$cmd};                              # Use cache if possible
 
   my $c = qx(which $cmd);                                                       # Check for command
@@ -4728,13 +4811,20 @@ sub confirmHasCommandLineCommand($)                                             
    {return ++$confirmHasCommandLineCommand{$cmd};
    }
 
-  cluck "Unable to confirm presence of command: $cmd\n";                        # Complain if the command is not available
+  cluck "Unable to confirm presence of command: $cmd\n" unless $noComplaints;   # Complain if the command is not available
   undef;
  }
 
-sub getNumberOfCpus                                                             #P Number of cpus
+sub getCCompiler                                                                #P Return the name of the C compiler on this system.
+ {for my $c(qw(gcc cc clang))                                                   # Try each compiler until we find one that works
+   {return $c if confirmHasCommandLineCommand($c, 1);
+   }
+  undef;
+ }
+
+sub getNumberOfCpus                                                             #P Number of cpus.
  {return 1 if $^O !~ m(linux)i;                                                 # Presumably there is at least 1
-  my $n = confirmHasCommandLineCommand(q(nproc)) ? qx(nproc) : undef;           # nproc
+  my $n = confirmHasCommandLineCommand(q(nproc)) ? qx(nproc) : undef;           # Command: nproc
   return 1 unless $n;                                                           # We must have at least 1
   $n =~ s(\s+\Z) ()r;
  }
@@ -4749,7 +4839,7 @@ sub numberOfCpus(;$)                                                            
   $n
  }
 
-sub ipAddressViaArp($)                                                          # Get the ip address of a server on the local network by hostname via arp
+sub ipAddressViaArp($)                                                          # Get the ip address of a server on the local network by hostname via arp.
  {my ($hostName) = @_;                                                          # Host name
   return undef unless confirmHasCommandLineCommand(q(arp));                     # Confirm we have arp
 
@@ -4790,7 +4880,8 @@ sub saveCodeToS3($$$$;$)                                                        
   my $z = fpe($folder, $zipFileName, q(zip));                                   # Zip file
   unlink $z;                                                                    # Remove old zip file
 
-  if (my $c = qq(cd $folder; zip -qr $z * -x "*.zip" -x "*.gz" -x "*/blib/*" -x "*/[._]*"))  # Zip command
+  if (my $c = qq(cd $folder; zip -qr $z * -x "*.zip")                           # Zip command
+             .qq( -x "*.gz" -x "*/blib/*" -x "*/[._]*"))
    {my $r = qx($c);
     confess "$c\n$r\n" if $r =~ m(\S);                                          # Confirm zip
    }
@@ -5045,7 +5136,7 @@ sub awsParallelPrimaryIpAddress(%)                                              
  {my (%options) = @_;                                                           # Options
 
   my $s = awsParallelPrimaryInstanceId(%options);                               # Instance id of primary instance
-  if (my $instanceIds = awsEc2DescribeInstancesGetIPAddresses(%options))        # {instance id => instance ip }
+  if (my $instanceIds = awsEc2DescribeInstancesGetIPAddresses(%options))        # Hash of {instance id => instance ip }
    {return $$instanceIds{$s};                                                   # Ip address of primary
    }
 
@@ -5057,7 +5148,7 @@ sub awsParallelSecondaryIpAddresses(%)                                          
 
   my @i;
   my $s = awsParallelPrimaryInstanceId(%options);                               # Instance id of primary instance
-  if (my $instanceIds = awsEc2DescribeInstancesGetIPAddresses(%options))        # {instance id => instance ip }
+  if (my $instanceIds = awsEc2DescribeInstancesGetIPAddresses(%options))        # Hash of {instance id => instance ip }
    {for my $id(sort keys %$instanceIds)                                         # Each running instance
      {next if $id eq $s;                                                        # Skip primary instance
       push @i, $$instanceIds{$id};                                              # Save ip address of secondary instance
@@ -5072,7 +5163,7 @@ sub awsParallelIpAddresses(%)                                                   
 
   my @i;
   my $s = awsParallelPrimaryInstanceId(%options);                               # Instance id of primary instance
-  if (my $instanceIds = awsEc2DescribeInstancesGetIPAddresses(%options))        # {instance id => instance ip }
+  if (my $instanceIds = awsEc2DescribeInstancesGetIPAddresses(%options))        # Hash of {instance id => instance ip }
    {for my $id(sort keys %$instanceIds)                                         # Each running instance
      {push @i, $$instanceIds{$id};                                              # Save ip address of secondary instance
      }
@@ -5081,7 +5172,7 @@ sub awsParallelIpAddresses(%)                                                   
   @i                                                                            # Ip addresses of all instances
  }
 
-sub getCodeContext($)                                                           # Recreate the code context for a referenced sub
+sub getCodeContext($)                                                           # Recreate the code context for a referenced sub.
  {my ($sub) = @_;                                                               # Sub reference
   my @l = readFile($0);
   my @c;
@@ -5227,13 +5318,13 @@ sub awsParallelProcessFilesTestResults($@)                                      
 
 #D1 S3                                                                          # Work with S3 as if it were a file system.
 
-sub s3Profile(%)                                                                #P Return an S3 profile keyword from an S3 option set
+sub s3Profile(%)                                                                #P Return an S3 profile keyword from an S3 option set.
  {my (%options) = @_;                                                           # Options
   my $p = $options{profile};                                                    # Profile option
   $p ? qq( --profile $p) : q()                                                  # Return profile keyword if profile specified
  }
 
-sub s3Delete(%)                                                                 #P Return an S3 --delete keyword from an S3 option set
+sub s3Delete(%)                                                                 #P Return an S3 --delete keyword from an S3 option set.
  {my (%options) = @_;                                                           # Options
   my $p = $options{delete};                                                     # Delete option
   $p ? qq( --delete) : q()                                                      # Return delete keyword if profile specified
@@ -5425,8 +5516,8 @@ sub newProcessStarter($%)                                                       
     processingLogFile        => undef,                                          #I Optional: name of a file to which process start and end information should be appended
     processingLogFileHandle  => undef,                                          # Handle for log file if a log file was supplied
     totalToBeStarted         => undef,                                          #I Optionally: the total number of processes to be started - if this is supplied then an estimate of the finish time for this processing is printed to the log file every time a process starts or finishes.
-    processStartTime         => {},                                             # {pid} == time the process was started.
-    processFinishTime        => {},                                             # {pid} == time the process finished.
+    processStartTime         => {},                                             # Hash of {pid} == time the process was started.
+    processFinishTime        => {},                                             # Hash of {pid} == time the process finished.
     startTime                => time,                                           # Start time
    );
 
@@ -5468,7 +5559,7 @@ sub Data::Table::Text::Starter::logEntry($$)                                    
    }
  }
 
-sub Data::Table::Text::Starter::averageProcessTime($)                           #P Average elapsed time spent by each process
+sub Data::Table::Text::Starter::averageProcessTime($)                           #P Average elapsed time spent by each process.
  {my ($starter) = @_;                                                           # Starter
   my $execTime = 0;                                                             # Total execution time for all processes that have finished so far
   for my $finish(sort keys %{$starter->processFinishTime})                      # Sum execution time over all processes that have finished
@@ -5529,8 +5620,8 @@ sub Data::Table::Text::Starter::waitOne($)                                      
  {my ($starter) = @_;                                                           # Starter
   my $select = 0;                                                               # Must wait for at least one process to finish
   my $startTime = time;
-
-  while(keys(%{$starter->pids}) and my $p = waitpid 0, $select)                 # Wait for a process to finish - get its pid
+                                                    # -1 or 0 depending on operating system ?
+  while(keys(%{$starter->pids}) and my $p = waitpid -1, $select)                # Wait for a process to finish - get its pid
    {if ($starter->pids->{$p})                                                   # One of ours and it has data to transfer
      {if (my $t = $starter->transferArea)                                       # Transfer folder
        {my $f = fpe($t, $p, q(data));                                           # Transfer file in transfer folder
@@ -5540,7 +5631,7 @@ sub Data::Table::Text::Starter::waitOne($)                                      
           lll "Retrieve $f start size=$size " if $big;
           if (my $d = eval {retrieve $f})                                       # Retrieve data
            {if (ref($d) =~ m(array)is)                                          # Check we got an array reference
-             {if (@$d == 1)                                                     # array should have just one element
+             {if (@$d == 1)                                                     # Array should have just one element
                {push @{$starter->resultsArray}, $$d[0];                         # Save data in parent
                }
               else
@@ -5638,7 +5729,7 @@ sub squareArray(@)                                                              
   @s                                                                            # Resulting square array
  }
 
-sub deSquareArray(@)                                                            # Create a one dimensional array from a two dimensional array of arrays
+sub deSquareArray(@)                                                            # Create a one dimensional array from a two dimensional array of arrays.
  {my (@square) = @_;                                                            # Array of arrays
   my @a;
   for my $r(@square)                                                            # Each row
@@ -5648,7 +5739,7 @@ sub deSquareArray(@)                                                            
   @a                                                                            # Linear array
  }
 
-sub countSquareArray(@)                                                         #P Count the number of elements in a square array
+sub countSquareArray(@)                                                         #P Count the number of elements in a square array.
  {my (@square) = @_;                                                            # Array of arrays
   my $a = 0;
   for my $r(@square)                                                            # Each row
@@ -5717,7 +5808,7 @@ sub callSubInOverlappedParallel(&&)                                             
  }
 
 sub runInParallel($$$@)                                                         #I Process the elements of an array in parallel using a maximum of B<$maximumNumberOfProcesses> processes. sub B<&$parallel> is forked to process each array element in parallel. The results returned by the forked copies of &$parallel are presented as a single array to sub B<&$results> which is run in series. B<@array> contains the elements to be processed. Returns the result returned by &$results.
- {my ($maximumNumberOfProcesses, $parallel, $results, @array) = @_;             # Maximum number of processes, parallel sub, results sub, array of items to process
+ {my ($maximumNumberOfProcesses, $parallel, $results, @array) = @_;             # Maximum number of processes, parallel sub, optional sub to process results, array of items to process
 
   my $p = newProcessStarter($maximumNumberOfProcesses);                         # Process starter
 
@@ -5730,7 +5821,7 @@ sub runInParallel($$$@)                                                         
   undef
  } # runInParallel
 
-sub runInSquareRootParallel($$$@)                                               # Process the elements of an array in square root parallel using a maximum of B<$maximumNumberOfProcesses> processes. sub B<&$parallel> is forked to process each block of array elements in parallel. The results returned by the forked copies of &$parallel are presented as a single array to sub B<&$results> which is run in series. B<@array> contains the elements to be processed. Returns the result returned by &$results..
+sub runInSquareRootParallel($$$@)                                               # Process the elements of an array in square root parallel using a maximum of B<$maximumNumberOfProcesses> processes. sub B<&$parallel> is forked to process each block of array elements in parallel. The results returned by the forked copies of &$parallel are presented as a single array to sub B<&$results> which is run in series. B<@array> contains the elements to be processed. Returns the result returned by &$results.
  {my ($maximumNumberOfProcesses, $parallel, $results, @array) = @_;             # Maximum number of processes, parallel sub, results sub, array of items to process
 
   my @s = squareArray(@array);                                                  # Square array of processes
@@ -5771,7 +5862,7 @@ sub packBySize($@)                                                              
     push @{$buckets[$mb]},  $$size[1];                                          # Add file to bucket
    }
 
-  @buckets                                                                      # ([file names ...]...) so that each bucket has the approximately the same number of bytes summed over the files in the bucket
+  @buckets                                                                      # List of ([file names ...]...) so that each bucket has the approximately the same number of bytes summed over the files in the bucket
  }
 
 sub processSizesInParallelN($$$@)                                               #P Process items of known size in parallel using the specified number B<$N> processes with the process each file is assigned to depending on the size of the file so that each process is loaded with approximately the same number of bytes of data in total from the files it processes. \mEach file is processed by sub B<$parallel> and the results of processing all files is processed by B<$results> where the files are taken from B<@files>. Each B<&$parallel> receives a file from B<@files>. B<&$results> receives an array of all the results returned by B<&$parallel>.
@@ -5946,7 +6037,7 @@ sub Data::Exchange::Service::check($$)                                          
 
 #D1 Conversions                                                                 # Perform various conversions from STDIN to STDOUT
 
-sub convertPerlToJavaScript(;$$)                                                # Convert Perl to Javascript
+sub convertPerlToJavaScript(;$$)                                                # Convert Perl to Javascript.
  {my ($in, $out) = @_;                                                          # Input file name or STDIN if undef, output file name or STDOUT if undefined
   my @lines = $in ? readFile($in) : readStdIn;                                  # Read file or STDIN
 
@@ -5964,7 +6055,7 @@ sub convertPerlToJavaScript(;$$)                                                
      }
    }
 
-  for my $i(keys @lines)                                                        # if(my
+  for my $i(keys @lines)                                                        # Each line
    {if ($lines[$i] =~ m(\A(\s*)if\s*\(my\s*\$(\w+))i)
      {my ($lead, $var) = ($1, $2);
       my $l = $lines[$i];
@@ -5975,14 +6066,14 @@ sub convertPerlToJavaScript(;$$)                                                
      }
    }
 
-  for my $i(keys @lines)                                                        # if(defined $x)
+  for my $i(keys @lines)                                                        # If(defined $x)
    {if ($lines[$i] =~ m(\A(\s*)if\s*\(defined\s*\$(\w+)\s*\)(.*)\Z)i)
      {my ($lead, $var, $trail) = ($1, $2);
       $lines[$i] = qq(${lead}if ($var !== undefined)\n)
      }
    }
 
-  for my $i(keys @lines)                                                        # for my $var(
+  for my $i(keys @lines)                                                        # For my $var(
    {if ($lines[$i] =~ m(\A(\s*)for\s*my\s*(\w+)(.*)\Z)i)
      {my ($lead, $var, $rest) = ($1, $2, $3);
       $lines[$i] = qq/${lead}for(const $var of $rest/
@@ -6001,18 +6092,18 @@ sub convertPerlToJavaScript(;$$)                                                
       s(\{\$(\w+)\})            (\[$1\])gs;                                     # Hash variable lookup
       s(\s+(or)\s+)             ( || )gs;                                       # Or
       s(\s+(and)\s+)            ( && )gs;                                       # And
-      s(sort keys\s*%\$(\w+))   (Object.keys($1).sort())gs;                     # sort keys %$t
-      s(keys\s*%\$(\w+))        (Object.keys($1))gs;                            # keys %$t
-      s(\Ause)                  (require);                                      # use ...
-      s(\A(\s*)ok\s+(.*);\s*\Z) (${1}assert($2)\n);                             # ok
-      s(\A(\s*)is_deeply)       (${1}assert.deepEquals\();                      # is_deeply
-      s(qq\((.*?)\))            (`$1`)gs;                                       # double quoted strings
-      s(q\((.*?)\))             ('$1')gs;                                       # single quoted strings
+      s(sort keys\s*%\$(\w+))   (Object.keys($1).sort())gs;                     # Sort keys %$t
+      s(keys\s*%\$(\w+))        (Object.keys($1))gs;                            # Keys %$t
+      s(\Ause)                  (require);                                      # Use .
+      s(\A(\s*)ok\s+(.*);\s*\Z) (${1}assert($2)\n);                             # Ok
+      s(\A(\s*)is_deeply)       (${1}assert.deepEquals\();                      # Is_deeply
+      s(qq\((.*?)\))            (`$1`)gs;                                       # Double quoted strings
+      s(q\((.*?)\))             ('$1')gs;                                       # Single quoted strings
       s([\$\@&#])               ()gs;                                           # Sigils
      }
    }
 
-  if (1)                                                                        # ->
+  if (1)                                                                        # Pointer ->
    {for(@lines)
      {s(->\[) ([)gs;
       s(->)   (\.)gs;
@@ -6062,15 +6153,15 @@ sub parseDitaRef($;$$)                                                          
 
   $file    = $File && $file ? sumAbsAndRel($File, $file) : $File || $file||q(); # Full file path if possible
 
-  if (!$rest)                                                                   # file
+  if (!$rest)                                                                   # File
    {return ($file, q(), q())
    }
 
-  if ($rest !~ m(/)s)                                                           # file#id
+  if ($rest !~ m(/)s)                                                           # File#id
    {return ($file, q(), $rest)
    }
 
-  if ($rest =~ m(\A\./)s)                                                       # file#./id
+  if ($rest =~ m(\A\./)s)                                                       # File#./id
    {return ($file, $TopicId || q(), $rest =~ s(\A\./) ()r)
    }
 
@@ -6082,7 +6173,7 @@ sub parseDitaRef($;$$)                                                          
   ($file, $topicId, $id)
  }
 
-sub parseXmlDocType($)                                                          # Parse an L<xml> DOCTYPE and return a hash indicating its components
+sub parseXmlDocType($)                                                          # Parse an L<xml> DOCTYPE and return a hash indicating its components.
  {my ($string) = @_;                                                            # String containing a DOCTYPE
 
   if ($string =~ m(<!DOCTYPE\s+(\w+)\s+PUBLIC\s+"([^"]+)"\s+"([^"]+)")s)        # Parse DOCTYPE PUBLIC
@@ -6131,7 +6222,7 @@ END
     $reportFile ? (file=>$reportFile) : ());
  }
 
-sub reportAttributes($)                                                         # Report the attributes present in a B<$sourceFile>
+sub reportAttributes($)                                                         # Report the attributes present in a B<$sourceFile>.
  {my ($sourceFile) = @_;                                                        # Source file
   my $s = readFile($sourceFile);
   my %s;
@@ -6168,7 +6259,7 @@ END
   \@r
  }
 
-sub reportReplacableMethods($)                                                  # Report the replaceable methods marked with #r in a B<$sourceFile>
+sub reportReplacableMethods($)                                                  # Report the replaceable methods marked with #r in a B<$sourceFile>.
  {my ($sourceFile) = @_;                                                        # Source file
   my $s = readFile($sourceFile);
   my %s;
@@ -6180,7 +6271,7 @@ sub reportReplacableMethods($)                                                  
   \%s
  }
 
-sub reportExportableMethods($)                                                  # Report the exportable methods marked with #e in a B<$sourceFile>
+sub reportExportableMethods($)                                                  # Report the exportable methods marked with #e in a B<$sourceFile>.
  {my ($sourceFile) = @_;                                                        # Source file
   my $s = readFile($sourceFile);
   my %s;
@@ -6225,341 +6316,468 @@ END
   $html =~ s($replace) ($h)gsr;
  }
 
-sub wellKnownUrls                                                               #P Short names for some well known urls
+sub wellKnownUrls                                                               #P Short names for some well known urls.
  {genHash(q(Short_Names_For_Well_Known_Urls),                                   #  Short names for some well known urls
-    aas             => [q(Amazon App Store),                                    "https://www.amazon.com/s?k=appaapps"                                                                                             ], #
-    ab              => [q(Android Build),                                       "https://metacpan.org/pod/Android::Build"                                                                                         ], #
-    alva            => [q(Rio Alva),                                            "https://duckduckgo.com/?t=canonical&q=rio+alva&iax=images&ia=images"                                                             ], #
-    ami             => [q(Amazon Machine Image),                                "https://en.wikipedia.org/wiki/Amazon_Machine_Image"                                                                              ], #
-    apache          => [q(Apache Web Server),                                   "https://en.wikipedia.org/wiki/Apache_HTTP_Server"                                                                                ], #
-    appaapps        => [q(www.appaapps.com),                                    "http://www.appaaps.com"                                                                                                          ], #
-    aramco          => [q(Saudi Aramco),                                        "https://en.wikipedia.org/wiki/Saudi_Aramco"                                                                                      ], #
-    arena           => [q(arena),                                               "https://en.wikipedia.org/wiki/Region-based_memory_management"                                                                    ], #
-    ascii           => [q(Ascii),                                               "https://en.wikipedia.org/wiki/ASCII"                                                                                             ], #
-    avx512          => [q(Advanced Vector Extensions),                          "https://en.wikipedia.org/wiki/AVX-512"                                                                                           ], #
-    avx             => [q(Advanced Vector Extensions),                          "https://en.wikipedia.org/wiki/AVX-512"                                                                                           ], #
-    awsami          => [q(Amazon Web Services - Amazon Machine Image),          "https://en.wikipedia.org/wiki/Amazon_Machine_Image"                                                                              ], #
-    awscli          => [q(Amazon Web Services Command Line Interface),          "https://aws.amazon.com/cli/"                                                                                                     ], #
-    awsforecast     => [q(Amazon Web Services Forecast),                        "https://eu-west-1.console.aws.amazon.com/forecast"                                                                               ], #
-    aws             => [q(Amazon Web Services),                                 "http://aws.amazon.com"                                                                                                           ], #
-    azure           => [q(Azure),                                               "https://en.wikipedia.org/wiki/Microsoft_Azure"                                                                                   ], #
-    backend         => [q(back end),                                            "https://en.wikipedia.org/wiki/Front_end_and_back_end"                                                                            ], #
-    bandwidth       => [q(Bandwidth),                                           "https://en.wikipedia.org/wiki/Bandwidth_(computing)"                                                                             ], #
-    ban             => [q(Briana Ashley Nevarez),                               "https://www.linkedin.com/in/briana-nevarez-b66b621b0/"                                                                           ], #
-    bash            => [q(Bash),                                                "https://en.wikipedia.org/wiki/Bash_(Unix_shell)"                                                                                 ], #
-    binarysearch    => [q(Binary Search),                                       "https://metacpan.org/release/Binary-Heap-Search"                                                                                 ], #
-    bitterend       => [q(Bitter End),                                          "https://en.wikipedia.org/wiki/Knot#Bitter_end"                                                                                   ], #
-    blob            => [q(blob),                                                "https://en.wikipedia.org/wiki/Binary_large_object"                                                                               ], #
-    boson           => [q(Boson),                                               "https://en.wikipedia.org/wiki/Boson"                                                                                             ], #
-    browser         => [q(web browser),                                         "https://en.wikipedia.org/wiki/Web_browser"                                                                                       ], #
-    bulktreeg       => [q(Bulk Tree),                                           "https://github.com/philiprbrenan/TreeBulk"                                                                                       ], #
-    button          => [q(Button),                                              "https://en.wikipedia.org/wiki/Button_(computing)"                                                                                ], #
-    camelCase       => [q(camelCase),                                           "https://en.wikipedia.org/wiki/Camel_case"                                                                                        ], #
-    certbot         => [q(Certbot),                                             "https://certbot.eff.org/lets-encrypt/ubuntufocal-apache"                                                                         ], #
-    cgi             => [q(Common Gateway Interface),                            "https://en.wikipedia.org/wiki/Common_Gateway_Interface"                                                                          ], #
-    chmod           => [q(chmod),                                               "https://linux.die.net/man/1/chmod"                                                                                               ], #
-    chown           => [q(chown),                                               "https://linux.die.net/man/1/chown"                                                                                               ], #
-    cicd            => [q(CI/CD),                                               "https://en.wikipedia.org/wiki/Continuous_integration"                                                                            ], #
-    cicero          => [q("The sinews of war are an infinite supply of money"), "https://en.wikipedia.org/wiki/Cicero#Legacy"                                                                                     ], #
-    cl              => [q(command line),                                        "https://en.wikipedia.org/wiki/Command-line_interface"                                                                            ], #
-    cm              => [q(Codementor),                                          'https://www.codementor.io/@philiprbrenan'                                                                                        ], #
-    co2             => [q(Carbon Dioxide),                                      "https://en.wikipedia.org/wiki/Carbon_dioxide"                                                                                    ], #
-    codementor      => [q(Codementor),                                          'https://www.codementor.io/@philiprbrenan'                                                                                        ], #
-    code            => [q(code),                                                "https://en.wikipedia.org/wiki/Computer_program"                                                                                  ], #
-    commandline     => [q(command line),                                        "https://en.wikipedia.org/wiki/Command-line_interface"                                                                            ], #
-    comment         => [q(comment),                                             "https://en.wikipedia.org/wiki/Comment_(computer_programming)"                                                                    ], #
-    computer        => [q(computer),                                            "https://en.wikipedia.org/wiki/Computer"                                                                                          ], #
-    concept         => [q(concept),                                             "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/langRef/technicalContent/concept.html#concept"], #
-    confess         => [q(confess),                                             "http://perldoc.perl.org/Carp.html#SYNOPSIS/"                                                                                     ], #
-    conref          => [q(conref),                                              "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/archSpec/base/conref.html#conref"             ], #
-    cookie          => [q(cookie),                                              "https://en.wikipedia.org/wiki/Cookie"                                                                                            ], #
-    corpus          => [q(corpus),                                              "https://en.wikipedia.org/wiki/Text_corpus"                                                                                       ], #
-    coverage        => [q(coverage),                                            "https://en.wikipedia.org/wiki/Code_coverage"                                                                                     ], #
-    cpan            => [q(CPAN),                                                "https://metacpan.org/author/PRBRENAN"                                                                                            ], #
-    cpu             => [q(CPU),                                                 "https://en.wikipedia.org/wiki/Central_processing_unit"                                                                           ], #
-    c               => [q(the C programming language),                          "https://1lib.eu/book/633119/db5c78"                                                                                              ], #
-    css             => [q(Cascading Style Sheets),                              "https://en.wikipedia.org/wiki/CSS"                                                                                               ], #
-    csv             => [q(csv),                                                 "https://en.wikipedia.org/wiki/Comma-separated_values"                                                                            ], #
-    curl            => [q(curl),                                                "https://linux.die.net/man/1/curl"                                                                                                ], #
-    cv              => [q(Curriculum Vitae),                                    "https://en.wikipedia.org/wiki/Curriculum_vitae"                                                                                  ], #
-    dataStructure   => [q(data structure),                                      "https://en.wikipedia.org/wiki/Data_structure"                                                                                    ], #
-    db2             => [q(DB2),                                                 "https://en.wikipedia.org/wiki/IBM_Db2_Family"                                                                                    ], #
-    dbi             => [q(DBI),                                                 "https://dbi.perl.org/"                                                                                                           ], #
-    ddg             => [q(DuckDuckGo),                                          "https://www.duckduckgo.com"                                                                                                      ], #
-    dd              => [q(Daily Diary),                                         "http://philiprbrenan.appaapps.com.s3-website-eu-west-1.amazonaws.com/index.html"                                                 ], #
-    ddt             => [q(Data::Table::Text),                                   "https://metacpan.org/pod/Data::Table::Text"                                                                                      ], #
-    dependencies    => [q(dependencies),                                        "https://en.wikipedia.org/wiki/Coupling_(computer_programming)"                                                                   ], #
-    dexl            => [q(Data::Edit::Xml::Lint),                               "https://metacpan.org/release/Data-Edit-Xml-Lint"                                                                                 ], #
-    dex             => [q(Data::Edit::Xml),                                     "https://metacpan.org/pod/Data::Edit::Xml"                                                                                        ], #
-    dexr            => [q(Data::Edit::Xml::Reuse),                              "https://metacpan.org/release/Data-Edit-Xml-Reuse"                                                                                ], #
-    dexx            => [q(Data::Edit::Xml::Xref),                               "https://metacpan.org/release/Data-Edit-Xml-Xref"                                                                                 ], #
-    dfa             => [q(DFA),                                                 "https://metacpan.org/pod/Data::DFA"                                                                                              ], #
-    dhahran         => [q(Dhahran),                                             "https://en.wikipedia.org/wiki/Dhahran"                                                                                           ], #
-    die             => [q(die),                                                 "http://perldoc.perl.org/functions/die.html"                                                                                      ], #
-    diff            => [q(diff),                                                "https://en.wikipedia.org/wiki/Diff"                                                                                              ], #
-    diospiros       => [q(diospiros),                                           "https://en.wikipedia.org/wiki/Persimmon"                                                                                         ], #
-    diskdrive       => [q(disk drive),                                          "https://en.wikipedia.org/wiki/Solid-state_drive"                                                                                 ], #
-    ditaot          => [q(DITA Open ToolKit),                                   "http://www.dita-ot.org/download"                                                                                                 ], #
-    dita            => [q(Dita),                                                "http://docs.oasis-open.org/dita/dita/v1.3/os/part2-tech-content/dita-v1.3-os-part2-tech-content.html"                            ], #
-    divtag          => [q(Div tag),                                             "https://en.wikipedia.org/wiki/Span_and_div"                                                                                      ], #
-    dns             => [q(Domain Name System),                                  "https://en.wikipedia.org/wiki/Domain_Name_System"                                                                                ], #
-    docbook         => [q(DocBook),                                             "https://tdg.docbook.org/tdg/5.1/"                                                                                                ], #
-    docker          => [q(Docker),                                              "https://en.wikipedia.org/wiki/Docker_(software)"                                                                                 ], #
-    documentation   => [q(documentation),                                       "https://en.wikipedia.org/wiki/Software_documentation"                                                                            ], #
-    domain          => [q(domain name),                                         "https://en.wikipedia.org/wiki/Domain_name"                                                                                       ], #
-    dom             => [q(Document Object Model),                               "https://developer.mozilla.org/en-US/docs/Web/API/Document_Object_Model"                                                          ], #
-    dtd             => [q(DTD),                                                 "https://en.wikipedia.org/wiki/Document_type_definition"                                                                          ], #
-    dttg            => [q(Data::Table::Text),                                   "https://github.com/philiprbrenan/DataTableText"                                                                                  ], #
-    dtt             => [q(Data::Table::Text),                                   "https://metacpan.org/pod/Data::Table::Text"                                                                                      ], #
-    ec2Console      => [q(EC2 Console),                                         "https://us-east-1.console.aws.amazon.com/ec2/"                                                                                   ], #
-    ec2             => [q(EC2),                                                 "https://aws.amazon.com/ec2/"                                                                                                     ], #
-    eff             => [q(The Electronic Frontier Foundation),                  "https://en.wikipedia.org/wiki/Electronic_Frontier_Foundation"                                                                    ], #
-    electrons       => [q(electrons),                                           "https://en.wikipedia.org/wiki/Electron"                                                                                          ], #
-    english         => [q(English),                                             "https://en.wikipedia.org/wiki/English_language"                                                                                  ], #
-    eval            => [q(eval),                                                "http://perldoc.perl.org/functions/eval.html"                                                                                     ], #
-    extensions      => [q(file name extensions),                                "https://en.wikipedia.org/wiki/List_of_filename_extensions"                                                                       ], #
-    fail            => [q(fail),                                                "https://1lib.eu/book/2468851/544b50"                                                                                             ], #
-    file            => [q(file),                                                "https://en.wikipedia.org/wiki/Computer_file"                                                                                     ], #
-    fileutility     => [q(File  utility),                                       "https://www.man7.org/linux/man-pages/man1/file.1.html"                                                                           ], #
-    find            => [q(find),                                                "https://en.wikipedia.org/wiki/Find_(Unix)"                                                                                       ], #
-    foehn           => [q(Foehn),                                               "https://en.wikipedia.org/wiki/Foehn_wind"                                                                                        ], #
-    folder          => [q(folder),                                              "https://en.wikipedia.org/wiki/File_folder"                                                                                       ], #
-    fork            => [q(fork),                                                "https://en.wikipedia.org/wiki/Fork_(system_call)"                                                                                ], #
-    frontend        => [q(front end),                                           "https://en.wikipedia.org/wiki/Front_end_and_back_end"                                                                            ], #
-    fsf             => [q(Free Software Foundation),                            "https://www.fsf.org/"                                                                                                            ], #
-    fusion          => [q(fusion),                                              "https://en.wikipedia.org/wiki/Nuclear_fusion"                                                                                    ], #
-    future          => [q(future),                                              "https://en.wikipedia.org/wiki/Future"                                                                                            ], #
-    gbstandard      => [q(GB Standard),                                         "http://metacpan.org/pod/Dita::GB::Standard"                                                                                      ], #
-    gdpr            => [q(European Directive on Data Protection),               "https://gdpr.eu"                                                                                                                 ], #
-    geany           => [q(Geany),                                               "https://www.geany.org"                                                                                                           ], #
-    ghc             => [q(Github Automation),                                   "https://metacpan.org/release/GitHub-Crud"                                                                                        ], #
-    ghe             => [q(Github Edit)      ,                                   "https://github.com/ricksnp/github-editor"                                                                                        ], #
-    gigabit         => [q(gigabit),                                             "https://en.wikipedia.org/wiki/Gigabit_Ethernet"                                                                                  ], #
-    gigabyte        => [q(gigabyte),                                            "https://en.wikipedia.org/wiki/Gigabyte"                                                                                          ], #
-    githubaction    => [q(GitHub Action),                                       "https://docs.github.com/en/free-pro-team\@latest/actions/quickstart"                                                             ], #
-    gitHubAction    => [q(GitHub Action),                                       "https://docs.github.com/en/free-pro-team\@latest/actions/quickstart"                                                             ], #
-    gitHubCrud      => [q(GitHub::Crud),                                        "https://metacpan.org/pod/GitHub::Crud"                                                                                           ], #
-    githubdp        => [q(GitHub Developer Program),                            "https://github.com/philiprbrenan"                                                                                                ], #
-    gitHubDP        => [q(GitHub Developer Program),                            "https://github.com/philiprbrenan"                                                                                                ], #
-    github          => [q(GitHub),                                              "https://github.com/philiprbrenan"                                                                                                ], #
-    gitHub          => [q(GitHub),                                              "https://github.com/philiprbrenan"                                                                                                ], #
-    gmt             => [q(Greenwich Mean Time),                                 "https://en.wikipedia.org/wiki/Greenwich_Mean_Time"                                                                               ], #
-    gnufdl          => [q(GNU Free Documentation License),                      "https://en.wikipedia.org/wiki/Wikipedia:Text_of_the_GNU_Free_Documentation_License"                                              ], #
-    gowest          => [q("Go West young man"),                                 "https://en.wikipedia.org/wiki/Go_West,_young_man"                                                                                ], #
-    grep            => [q(grep),                                                "https://en.wikipedia.org/wiki/Grep"                                                                                              ], #
-    guid            => [q(guid),                                                "https://en.wikipedia.org/wiki/Universally_unique_identifier"                                                                     ], #
-    gui             => [q(graphical user interface),                            "https://en.wikipedia.org/wiki/Graphical_user_interface"                                                                          ], #
-    gunzip          => [q(gunzip),                                              "https://en.wikipedia.org/wiki/Gunzip"                                                                                            ], #
-    gzip            => [q(gzip),                                                "https://en.wikipedia.org/wiki/Gzip"                                                                                              ], #
-    hacker          => [q(hacker),                                              "https://1lib.eu/book/643342/813ee7"                                                                                              ], #
-    heapsLaw        => [q(Heap's Law),                                          "https://en.wikipedia.org/wiki/Heaps%27_law"                                                                                      ], #
-    help            => [q(help),                                                "https://en.wikipedia.org/wiki/Online_help"                                                                                       ], #
-    hexadecimal     => [q(hexadecimal),                                         "https://en.wikipedia.org/wiki/Hexadecimal"                                                                                       ], #
-    hipaa           => [q(HIPAA),                                               "https://en.wikipedia.org/wiki/Health_Insurance_Portability_and_Accountability_Act"                                               ], #
-    hpe             => [q(Hewlett Packard Enterprise),                          "https://www.hpe.com/us/en/home.html"                                                                                             ], #
-    html            => [q(HTML),                                                "https://en.wikipedia.org/wiki/HTML"                                                                                              ], #
-    htmltable       => [q(html table),                                          "https://www.w3.org/TR/html52/tabular-data.html#the-table-element"                                                                ], #
-    http            => [q(HTTP),                                                "https://en.wikipedia.org/wiki/HTTP"                                                                                              ], #
-    https           => [q(HTTPS),                                               "https://en.wikipedia.org/wiki/HTTPS"                                                                                             ], #
-    hxnormalize     => [q(hxnormalize),                                         "https://www.w3.org/Tools/HTML-XML-utils/man1/hxnormalize.html"                                                                   ], #
-    ibm             => [q(IBM),                                                 "https://en.wikipedia.org/wiki/IBM"                                                                                               ], #
-    iconv           => [q(iconv),                                               "https://linux.die.net/man/1/iconv"                                                                                               ], #
-    ide             => [q(Integrated Development Environment),                  "https://en.wikipedia.org/wiki/Integrated_development_environment"                                                                ], #
-    ietf            => [q(Internet Engineering Task Force),                     "https://en.wikipedia.org/wiki/Internet_Engineering_Task_Force"                                                                   ], #
-    imagemagick     => [q(Imagemagick),                                         "https://www.imagemagick.org/script/index.php"                                                                                    ], #
-    infix           => [q(infix),                                               "https://en.wikipedia.org/wiki/Infix_notation"                                                                                    ], #
-    install         => [q(install),                                             "https://en.wikipedia.org/wiki/Installation_(computer_programs)"                                                                  ], #
-    intelsde        => [q(Intel Software Development Emulator),                 "https://software.intel.com/content/www/us/en/develop/articles/intel-software-development-emulator.html"                          ], #
-    internet        => [q(Internet),                                            "https://en.wikipedia.org/wiki/Internet"                                                                                          ], #
-    ip6             => [q(IPv6 address),                                        "https://en.wikipedia.org/wiki/IPv6"                                                                                              ], #
-    ipaddress       => [q(IP address),                                          "https://en.wikipedia.org/wiki/IP_address"                                                                                        ], #
-    ip              => [q(IP address),                                          "https://en.wikipedia.org/wiki/IP_address"                                                                                        ], #
-    java            => [q(Java),                                                "https://en.wikipedia.org/wiki/Java_(programming_language)"                                                                       ], #
-    javascript      => [q(JavaScript),                                          "https://en.wikipedia.org/wiki/JavaScript"                                                                                        ], #
-    jetni           => [q(Physics design calculations for the JET neutral injectors),"https://www.sciencedirect.com/science/article/pii/B978008025697950052X"                                                     ], #
-    jet             => [q(Joint European Torus),                                "https://en.wikipedia.org/wiki/Joint_European_Torus"                                                                              ], #
-    jpg             => [q(JPG),                                                 "https://en.wikipedia.org/wiki/JPEG"                                                                                              ], #
-    json            => [q(Json),                                                "https://en.wikipedia.org/wiki/JSON"                                                                                              ], #
-    keyboard        => [q(keyboard),                                            "https://en.wikipedia.org/wiki/Computer_keyboard"                                                                                 ], #
-    killarney       => [q(Killarney),                                           "https://en.wikipedia.org/wiki/Killarney"                                                                                         ], #
-    kubuntu         => [q(Kubuntu),                                             "https://kubuntu.org/"                                                                                                            ], #
-    laser           => [q(laser),                                               "https://en.wikipedia.org/wiki/Laser"                                                                                             ], #
-    learningCurve   => [q(learning curve),                                      "https://en.wikipedia.org/wiki/Learning_curve"                                                                                    ], #
-    libpq           => [q(libpq),                                               "https://www.postgresql.org/docs/13/libpq.html"                                                                                   ], #
-    libreoffice     => [q(LibreOffice),                                         "https://www.libreoffice.org/"                                                                                                    ], #
-    linting         => [q(linting),                                             "https://en.wikipedia.org/wiki/Lint_(software)"                                                                                   ], #
-    lint            => [q(lint),                                                "http://xmlsoft.org/xmllint.html"                                                                                                 ], #
-    linux           => [q(Linux),                                               "https://en.wikipedia.org/wiki/Linux"                                                                                             ], #
-    liseMeitner     => [q(Lise Meitner),                                        "https://en.wikipedia.org/wiki/Lise_Meitner"                                                                                      ], #
-    lisp            => [q(Lisp),                                                "https://en.wikipedia.org/wiki/Lisp"                                                                                              ], #
-    list            => [q(list),                                                "https://en.wikipedia.org/wiki/Linked_list"                                                                                       ], #
-    log             => [q(log),                                                 "https://en.wikipedia.org/wiki/Log_file"                                                                                          ], #
-    lunchclub       => [q(LunchClub),                                           "https://lunchclub.com/?invite_code=philipb4"                                                                                     ], #
-    lvaluemethod    => [q(lvalue method),                                       "http://perldoc.perl.org/perlsub.html#Lvalue-subroutines"                                                                         ], #
-    maze            => [q(Maze),                                                "https://github.com/philiprbrenan/maze"                                                                                           ], #
-    md5             => [q(MD5 sum),                                             "https://en.wikipedia.org/wiki/MD5"                                                                                               ], #
-    mdnfetch        => [q(the Javascript Fetch API),                            "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API"                                                                      ], #
-    md              => [q(Mark Down),                                           "https://en.wikipedia.org/wiki/Markdown"                                                                                          ], #
-    meme            => [q(Meme),                                                "https://en.wikipedia.org/wiki/Meme"                                                                                              ], #
-    memory          => [q(memory),                                              "https://en.wikipedia.org/wiki/Computer_memory"                                                                                   ], #
-    mentor          => [q(mentor),                                              "https://en.wikipedia.org/wiki/Mentorship"                                                                                        ], #
-    metadata        => [q(metadata),                                            "https://en.wikipedia.org/wiki/Metadata"                                                                                          ], #
-    mfa             => [q(Multi-factor authentication),                         "https://en.wikipedia.org/wiki/Multi-factor_authentication"                                                                       ], #
-    mideast         => [q(Middle East),                                         "https://en.wikipedia.org/wiki/Middle_East"                                                                                       ], #
-    minimalism      => [q(minimalism),                                          "https://en.wikipedia.org/wiki/Minimalism_(computing)"                                                                            ], #
-    mod_shib        => [q(mod_shib),                                            "https://wiki.shibboleth.net/confluence/display/SP3/Apache"                                                                       ], #
-    module          => [q(module),                                              "https://en.wikipedia.org/wiki/Modular_programming"                                                                               ], #
-    mopc            => [q(mop-c),                                               "https://metacpan.org/pod/Preprocess::Ops"                                                                                        ], #
-    murphyslaw      => [q(Murphy's Law),                                        "https://en.wikipedia.org/wiki/Murphy%27s_law"                                                                                    ], #
-    mvp             => [q(Minimal Viable Product),                              "https://en.wikipedia.org/wiki/Minimum_viable_product"                                                                            ], #
-    mysqlMan        => [q(MySql manual),                                        "https://dev.mysql.com/doc/refman/8.0/en/"                                                                                        ], #
-    mysql           => [q(MySql),                                               "https://en.wikipedia.org/wiki/MySQL"                                                                                             ], #
-    nasm            => [q(nasm),                                                "https://github.com/netwide-assembler/nasm"                                                                                       ], #
-    nasmx86         => [q(NasmX86),                                             "https://github.com/philiprbrenan/NasmX86"                                                                                        ], #
-    nfa             => [q(NFA),                                                 "https://metacpan.org/pod/Data::NFA"                                                                                              ], #
-    ni              => [q(Neutral Beam Injection),                              "https://en.wikipedia.org/wiki/Neutral-beam_injection"                                                                            ], #
-    nodejs          => [q(NodeJs),                                              "https://en.wikipedia.org/wiki/NodeJs"                                                                                            ], #
-    oauth           => [q(Oauth),                                               "https://en.wikipedia.org/wiki/OAuth"                                                                                             ], #
-    oneliner        => [q(one line program),                                    "https://en.wikipedia.org/wiki/One-liner_program"                                                                                 ], #
-    openoffice      => [q(Apache Open Office),                                  "https://www.openoffice.org/download/index.html"                                                                                  ], #
-    openssl         => [q(Open SSL),                                            "https://www.openssl.org/"                                                                                                        ], #
-    othermeta       => [q(othermeta),                                           "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/contentmodels/cmlto.html#cmlto__othermeta"    ], #
-#   our             => [q(our),                                                 "https://perldoc.perl.org/functions/our.html"                                                                                     ], #
-    oxygenformat    => [q(Oxygen Format),                                       "https://www.oxygenxml.com/doc/versions/20.1/ug-author/topics/linked-output-messages-of-external-engine.html"                     ], #
-    oxygenworkshop  => [q(Oxygen Workshop),                                     "http://github.com/philiprbrenan/oxygenWorkShop"                                                                                  ], #
-    pairprograming  => [q(pair programing),                                     "https://en.wikipedia.org/wiki/Pair_programming"                                                                                  ], #
-    pairprogram     => [q(pair program),                                        "https://en.wikipedia.org/wiki/Pair_programming"                                                                                  ], #
-    parkinson       => [q(Parkinson's law: work expands to fill the time available), "https://en.wikipedia.org/wiki/Parkinson%27s_law"                                                                            ], #
-    parse           => [q(parse),                                               "https://en.wikipedia.org/wiki/Parsing"                                                                                           ], #
-    pcdInstall      => [q(PCD installation),                                    "https://github.com/philiprbrenan/philiprbrenan.github.io/blob/master/pcd_installation.md"                                        ], #
-    pcdLang         => [q(PCD),                                                 "https://philiprbrenan.github.io/data_edit_xml_edit_commands.html"                                                                ], #
-    pcd             => [q(Dita::Pcd),                                           "https://metacpan.org/pod/Dita::PCD"                                                                                              ], #
-    pdf             => [q(PDF),                                                 "https://en.wikipedia.org/wiki/PDF"                                                                                               ], #
-    people          => [q(people),                                              "https://en.wikipedia.org/wiki/Person"                                                                                            ], #
-    perlal          => [q(Perl Artistic Licence),                               "https://dev.perl.org/licenses/artistic.html"                                                                                     ], #
-    perl            => [q(Perl),                                                "http://www.perl.org/"                                                                                                            ], #
-    pg              => [q(Postgres database),                                   "https://www.postgresql.org/"                                                                                                     ], #
-    philCpan        => [q(CPAN),                                                "https://metacpan.org/author/PRBRENAN"                                                                                            ], #
-    photoApp        => [q(AppaApps Photo App),                                  "https://github.com/philiprbrenan/AppaAppsGitHubPhotoApp"                                                                         ], #
-    php             => [q(PHP),                                                 "https://en.wikipedia.org/wiki/PHP"                                                                                               ], #
-    pi              => [q(𝝿),                                                   "https://en.wikipedia.org/wiki/Pi"                                                                                                ], #
-    plasma          => [q(plasma),                                              "https://en.wikipedia.org/wiki/Plasma_(physics)"                                                                                  ], #
-    pli             => [q(Programming Language One),                            "https://en.wikipedia.org/wiki/PL/I"                                                                                              ], #
-    pl              => [q(programming language),                                "https://en.wikipedia.org/wiki/Programming_language"                                                                              ], #
-    pod             => [q(POD),                                                 "https://perldoc.perl.org/perlpod.html"                                                                                           ], #
-    poppler         => [q(Poppler),                                             "https://poppler.freedesktop.org/"                                                                                                ], #
-    portugal        => [q(Portugal),                                            "https://en.wikipedia.org/wiki/Portugal"                                                                                          ], #
-    postgres        => [q(Postgres),                                            "https://github.com/philiprbrenan/postgres"                                                                                       ], #
-    prb             => [q(philip r brenan),                                     "https://philiprbrenan.neocities.org/"                                                                                            ], #
-    preprocessor    => [q(preprocessor),                                        "https://en.wikipedia.org/wiki/Preprocessor"                                                                                      ], #
-    process         => [q(process),                                             "https://en.wikipedia.org/wiki/Process_management_(computing)"                                                                    ], #
-    procfs          => [q(Process File System),                                 "https://en.wikipedia.org/wiki/Procfs"                                                                                            ], #
-    program         => [q(program),                                             "https://en.wikipedia.org/wiki/Computer_program"                                                                                  ], #
-    python          => [q(Python),                                              "https://www.python.org/"                                                                                                         ], #
-    quicksort       => [q(Quick Sort),                                          "https://github.com/philiprbrenan/QuickSort"                                                                                      ], #
-    r53             => [q(Route 53),                                            "https://console.aws.amazon.com/route53"                                                                                          ], #
-    rackspace       => [q(Rackspace),                                           "https://www.rackspace.com/"                                                                                                      ], #
-    recursively     => [q(recursively),                                         "https://en.wikipedia.org/wiki/Recursion"                                                                                         ], #
-    recursive       => [q(recursive),                                           "https://en.wikipedia.org/wiki/Recursion"                                                                                         ], #
-    relocatable     => [q(relocatable),                                         "https://en.wikipedia.org/wiki/Relocation_%28computing%29"                                                                        ], #
-    rfp             => [q(Request For Proposal),                                "https://en.wikipedia.org/wiki/Request_for_proposal"                                                                              ], #
-    riyadh          => [q(Riyadh),                                              "https://en.wikipedia.org/wiki/Riyadh"                                                                                            ], #
-    rrr             => [q(The R Programming Language),                          "https://en.wikipedia.org/wiki/R_(programming_language)"                                                                          ], #
-    rsa             => [q(RSA),                                                 "https://en.wikipedia.org/wiki/RSA_(cryptosystem)"                                                                                ], #
-    rsync           => [q(rsync),                                               "https://linux.die.net/man/1/rsync"                                                                                               ], #
-    s390            => [q(IBM System 390),                                      "https://en.wikipedia.org/wiki/IBM_System/390"                                                                                    ], #
-    s3Console       => [q(S3 Console),                                          "https://s3.console.aws.amazon.com/s3/home"                                                                                       ], #
-    s3              => [q(S3),                                                  "https://aws.amazon.com/s3/"                                                                                                      ], #
-    saml            => [q(Security Assertion Markup Language),                  "https://en.wikipedia.org/wiki/Security_Assertion_Markup_Language"                                                                ], #
-    samltest        => [q(SAML test),                                           "https://samltest.id/"                                                                                                            ], #
-    samltools       => [q(SAML tools),                                          "https://www.samltool.com/sp_metadata.php"                                                                                        ], #
-    sas             => [q(SAS Institute),                                       "https://en.wikipedia.org/wiki/SAS_Institute"                                                                                     ], #
-    securityGroup   => [q(security group),                                      "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/working-with-security-groups.html"                                           ], #
-    selfaware       => [q(self aware),                                          "https://en.wikipedia.org/wiki/Self-awareness"                                                                                    ], #
-    server          => [q(server),                                              "https://en.wikipedia.org/wiki/Server_(computing)"                                                                                ], #
-    sevenZ          => [q(7z),                                                  "https://en.wikipedia.org/wiki/7z"                                                                                                ], #
-    sha             => [q(SHA),                                                 "https://en.wikipedia.org/wiki/SHA-1"                                                                                             ], #
-    shell           => [q(shell),                                               "https://en.wikipedia.org/wiki/Shell_(computing)"                                                                                 ], #
-    shib            => [q(Shibboleth),                                          "https://www.shibboleth.net/"                                                                                                     ], #
-    simd            => [q(SIMD),                                                "https://www.officedaytime.com/simd512e/"                                                                                         ], #
-    smartmatch      => [q(smartmatch),                                          "https://perldoc.perl.org/perlop.html#Smartmatch-Operator"                                                                        ], #
-    snake_case      => [q(snake_case),                                          "https://en.wikipedia.org/wiki/Snake_case"                                                                                        ], #
-    sow             => [q(Shibboleth on Windows),                               "http://philiprbrenan.appaapps.com/ShibbolethOnWindows"                                                                           ], #
-    spot            => [q(spot),                                                "https://aws.amazon.com/ec2/spot/"                                                                                                ], #
-    spreedsheet     => [q(Spreadsheet),                                         "https://en.wikipedia.org/wiki/Spreadsheet"                                                                                       ], #
-    sql             => [q(Structured Query Language),                           "https://en.wikipedia.org/wiki/SQL"                                                                                               ], #
-    squareroot      => [q(Square Root),                                         "https://en.wikipedia.org/wiki/Square_root"                                                                                       ], #
-    ssh             => [q(Secure Shell),                                        "https://www.ssh.com/ssh"                                                                                                         ], #
-    ssxr            => [q(Self Xref),                                           "https://philiprbrenan.github.io/selfServiceXref.pdf"                                                                             ], #
-    stderr          => [q(stderr),                                              "https://en.wikipedia.org/wiki/Standard_streams#Standard_input_(stdin)"                                                           ], #
-    stdin           => [q(stdin),                                               "https://en.wikipedia.org/wiki/Standard_streams#Standard_input_(stdin)"                                                           ], #
-    stdout          => [q(stdout),                                              "https://en.wikipedia.org/wiki/Standard_streams#Standard_input_(stdin)"                                                           ], #
-    step            => [q(step),                                                "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/contentmodels/cmlts.html#cmlts__step"         ], #
-    steps           => [q(steps),                                               "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/contentmodels/cmlts.html#cmlts__steps"        ], #
-    stopwords       => [q(stopwords),                                           "https://metacpan.org/pod/Storable"                                                                                               ], #
-    storable        => [q(Storable),                                            "https://metacpan.org/pod/Storable"                                                                                               ], #
-    sub             => [q(sub),                                                 "https://perldoc.perl.org/perlsub.html"                                                                                           ], #
-    substeps        => [q(substeps),                                            "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/contentmodels/cmlts.html#cmlts__substeps"     ], #
-    sws             => [q(Sir Walter Scott),                                    "https://en.wikipedia.org/wiki/Walter_Scott"                                                                                      ], #
-    table           => [q(table of information),                                "https://en.wikipedia.org/wiki/Table_(information)"                                                                               ], #
-    tab             => [q(tab),                                                 "https://en.wikipedia.org/wiki/Tab_key"                                                                                           ], #
-    taocp           => [q(The Art of Computer Programming),                     "https://en.wikipedia.org/wiki/The_Art_of_Computer_Programming"                                                                   ], #
-    ta              => [q(Transamerica),                                        "https://en.wikipedia.org/wiki/Transamerica_Corporation"                                                                          ], #
-    task            => [q(task),                                                "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/langRef/technicalContent/task.html#task"      ], #
-    tcl             => [q(Tcl),                                                 "https://en.wikipedia.org/wiki/Tcl"                                                                                               ], #
-    tdd             => [q(test driven development),                             "https://en.wikipedia.org/wiki/Test-driven_development"                                                                           ], #
-    test            => [q(test),                                                "https://en.wikipedia.org/wiki/Software_testing"                                                                                  ], #
-    textmatch       => [q(text matching),                                       "https://metacpan.org/pod/Text::Match"                                                                                            ], #
-    thp             => [q(Theoretical Computational Physics),                   "https://en.wikipedia.org/wiki/Theoretical_physics"                                                                               ], #
-    tls             => [q(TLS),                                                 "https://en.wikipedia.org/wiki/Transport_Layer_Security"                                                                          ], #
-    transamerica    => [q(Transamerica),                                        "https://en.wikipedia.org/wiki/Transamerica_Corporation"                                                                          ], #
-    tree            => [q(tree),                                                "https://en.wikipedia.org/wiki/Tree_(data_structure)"                                                                             ], #
-    tritium         => [q(tritium),                                             "https://en.wikipedia.org/wiki/Tritium"                                                                                           ], #
-    ubuntu          => [q(Ubuntu),                                              "https://ubuntu.com/download/desktop"                                                                                             ], #
-    ucla            => [q(University of California at Los Angeles),             "https://en.wikipedia.org/wiki/University_of_California,_Los_Angeles"                                                             ], #
-    udel            => [q(University of Delaware),                              "https://www.udel.edu/"                                                                                                           ], #
-    udp             => [q(User Datagram Protocol),                              "https://en.wikipedia.org/wiki/User_Datagram_Protocol"                                                                            ], #
-    uk              => [q(United Kingdom),                                      "https://en.wikipedia.org/wiki/United_Kingdom"                                                                                    ], #
-    uk              => [q(United Kingdom),                                      "https://en.wikipedia.org/wiki/United_Kingdom"                                                                                    ], #
-    ul              => [q(University of Lancaster),                             "https://en.wikipedia.org/wiki/Lancaster_University"                                                                              ], #
-    umas            => [q(Unicode Mathematical Alphanumeric Symbols),           "https://en.wikipedia.org/wiki/Mathematical_Alphanumeric_Symbols"                                                                 ], #
-    undef           => [q(undef),                                               "https://perldoc.perl.org/functions/undef.html"                                                                                   ], #
-    unexaminedlife  => [q(Socrates: "The unexamined life is not worth living"), "https://en.wikipedia.org/wiki/The_unexamined_life_is_not_worth_living"                                                           ], #
-    unicode         => [q(Unicode),                                             "https://en.wikipedia.org/wiki/Unicode"                                                                                           ], #
-    unisyn          => [q(UniSyn),                                              "https://github.com/philiprbrenan/UnisynParse"                                                                                    ], #
-    universe        => [q(Universe),                                            "https://en.wikipedia.org/wiki/Universe"                                                                                          ], #
-    unixHaters      => [q(Unix Haters Handbook),                                "https://1lib.eu/book/750790/8f3128"                                                                                              ], #
-    unix            => [q(Unix),                                                "https://en.wikipedia.org/wiki/Unix"                                                                                              ], #
-    unoconv         => [q(unoconv),                                             "https://github.com/unoconv/unoconv"                                                                                              ], #
-    uow             => [q(Ubuntu on Windows),                                   "http://philiprbrenan.appaapps.com/UbuntuOnWindows"                                                                               ], #
-    upload          => [q(upload),                                              "https://en.wikipedia.org/wiki/Upload"                                                                                            ], #
-    url             => [q(url),                                                 "https://en.wikipedia.org/wiki/URL"                                                                                               ], #
-    usa             => [q(United States),                                       "https://en.wikipedia.org/wiki/United_States"                                                                                     ], #
-    usa             => [q(United States of America),                            "https://en.wikipedia.org/wiki/United_States"                                                                                     ], #
-    user            => [q(user),                                                "https://en.wikipedia.org/wiki/User_(computing)"                                                                                  ], #
-    uspto           => [q(United States Patent and Trademark Office),           "https://en.wikipedia.org/wiki/USPTO"                                                                                             ], #
-    utf8            => [q(utf8),                                                "https://en.wikipedia.org/wiki/UTF-8"                                                                                             ], #
-    v2              => [q(Vectors In Two Dimensions),                           "https://pypi.org/project/Vector2/"                                                                                               ], #
-    verify          => [q(verify),                                              "https://en.wikipedia.org/wiki/Software_verification_and_validation"                                                              ], #
-    vhdl            => [q(VHDL),                                                "https://ghdl.readthedocs.io/en/latest/about.html"                                                                                ], #
-    vi              => [q(vi),                                                  "https://www.vim.org/"                                                                                                            ], #
-    webpage         => [q(web page),                                            "https://en.wikipedia.org/wiki/Web_page"                                                                                          ], #
-    website         => [q(web site),                                            "https://en.wikipedia.org/wiki/Website"                                                                                           ], #
-    whitespace      => [q(white space),                                         "https://en.wikipedia.org/wiki/Whitespace_character"                                                                              ], #
-    whp             => [q(Whp),                                                 "https://www.whp.net/en/"                                                                                                         ], #
-    widget          => [q(widget),                                              "https://en.wikipedia.org/wiki/Graphical_widget"                                                                                  ], #
-    wikipedia       => [q(Wikipedia),                                           "https://en.wikipedia.org"                                                                                                        ], #
-    word            => [q(word),                                                "https://en.wikipedia.org/wiki/Doc_(computing)"                                                                                   ], #
-    x64             => [q(x64),                                                 "https://en.wikipedia.org/wiki/X86-64"                                                                                            ], #
-    xmllint         => [q(Xml Lint),                                            "http://xmlsoft.org/xmllint.html"                                                                                                 ], #
-    xmlparser       => [q(Xml parser),                                          "https://metacpan.org/pod/XML::Parser/"                                                                                           ], #
-    xml             => [q(Xml),                                                 "https://en.wikipedia.org/wiki/XML"                                                                                               ], #
-    xref            => [q(Xref),                                                "https://metacpan.org/pod/Data::Edit::Xml::Xref"                                                                                  ], #
-    youngtableaug   => [q(Young Tableau on GitHub),                             "https://github.com/philiprbrenan/youngTableauSort/"                                                                              ], #
-    youngtableau    => [q(Young Tableau),                                       "https://en.wikipedia.org/wiki/Young_tableau"                                                                                     ], #
-    zerowidthspace  => [q(zero width space),                                    "https://en.wikipedia.org/wiki/Zero-width_space"                                                                                  ], #
-    zip             => [q(zip),                                                 "https://linux.die.net/man/1/zip"                                                                                                 ], #
-    zoom            => [q(Zoom),                                                "https://zoom.us/"                                                                                                                ], #
+    amazonAurora    => [q(Amazon Aurora),                                       "https://en.wikipedia.org/wiki/Amazon_Aurora"                                                                                     ],
+    aas             => [q(Amazon App Store),                                    "https://www.amazon.com/s?k=appaapps"                                                                                             ],
+    androidBuild    => [q(Android Build),                                       "https://metacpan.org/pod/Android::Build"                                                                                         ],
+    abacus          => [q(Abacus),                                              "https://en.wikipedia.org/wiki/Abacus"                                                                                            ],
+    adamSmith       => [q(Adam Smith),                                          "https://en.wikipedia.org/wiki/Adam_Smith"                                                                                        ],
+    agile           => [q(agile development methodology),                       "https://en.wikipedia.org/wiki/Agile_software_development"                                                                        ],
+    alva            => [q(Rio Alva),                                            "https://duckduckgo.com/?t=canonical&q=rio+alva&iax=images&ia=images"                                                             ],
+    ami             => [q(Amazon Machine Image),                                "https://en.wikipedia.org/wiki/Amazon_Machine_Image"                                                                              ],
+    andon           => [q(the Andon principle),                                 "https://en.wikipedia.org/wiki/Andon_(manufacturing)"                                                                             ],
+    android         => [q(Android),                                             "https://en.wikipedia.org/wiki/Android_(operating_system)"                                                                        ],
+    apache          => [q(Apache Web Server),                                   "https://en.wikipedia.org/wiki/Apache_HTTP_Server"                                                                                ],
+    appaapps        => [q(www.appaapps.com),                                    "http://www.appaaps.com"                                                                                                          ],
+    aramco          => [q(Saudi Aramco),                                        "https://en.wikipedia.org/wiki/Saudi_Aramco"                                                                                      ],
+    arena           => [q(arena),                                               "https://en.wikipedia.org/wiki/Region-based_memory_management"                                                                    ],
+    arenas          => [q(arenas),                                              "https://en.wikipedia.org/wiki/Region-based_memory_management"                                                                    ],
+    array           => [q(array),                                               "https://en.wikipedia.org/wiki/Dynamic_array"                                                                                     ],
+    arrays          => [q(arrays),                                              "https://en.wikipedia.org/wiki/Dynamic_array"                                                                                     ],
+    as400           => [q(as400),                                               "https://en.wikipedia.org/wiki/IBM_System_i"                                                                                      ],
+    ascii           => [q(Ascii),                                               "https://en.wikipedia.org/wiki/ASCII"                                                                                             ],
+    asin            => [q(ASIN),                                                "https://en.wikipedia.org/wiki/Amazon_Standard_Identification_Number"                                                             ],
+    assemble        => [q(assemble),                                            "https://en.wikipedia.org/wiki/Assembly_language#Assembler"                                                                       ],
+    assembler       => [q(assembler),                                           "https://en.wikipedia.org/wiki/Assembly_language#Assembler"                                                                       ],
+    assembly        => [q(assembly),                                            "https://en.wikipedia.org/wiki/Assembly_language"                                                                                 ],
+    att             => [q(ATT),                                                 "https://www.att.com/internet/fiber/"                                                                                             ],
+    avx512          => [q(Advanced Vector Extensions),                          "https://en.wikipedia.org/wiki/AVX-512"                                                                                           ],
+    avx             => [q(Advanced Vector Extensions),                          "https://en.wikipedia.org/wiki/AVX-512"                                                                                           ],
+    awsami          => [q(Amazon Web Services - Amazon Machine Image),          "https://en.wikipedia.org/wiki/Amazon_Machine_Image"                                                                              ],
+    awscli          => [q(Amazon Web Services Command Line Interface),          "https://aws.amazon.com/cli/"                                                                                                     ],
+    awsforecast     => [q(Amazon Web Services Forecast),                        "https://eu-west-1.console.aws.amazon.com/forecast"                                                                               ],
+    aws             => [q(Amazon Web Services),                                 "http://aws.amazon.com"                                                                                                           ],
+    azure           => [q(Azure),                                               "https://en.wikipedia.org/wiki/Microsoft_Azure"                                                                                   ],
+    backend         => [q(back end),                                            "https://en.wikipedia.org/wiki/Front_end_and_back_end"                                                                            ],
+    bandwidth       => [q(Bandwidth),                                           "https://en.wikipedia.org/wiki/Bandwidth_(computing)"                                                                             ],
+    ban             => [q(Briana Ashley Nevarez),                               "https://www.linkedin.com/in/briana-nevarez-b66b621b0/"                                                                           ],
+    base64          => [q(base 64 encoding),                                    "https://en.wikipedia.org/wiki/Base64"                                                                                            ],
+    bash            => [q(Bash),                                                "https://en.wikipedia.org/wiki/Bash_(Unix_shell)"                                                                                 ],
+    binarysearch    => [q(Binary Search),                                       "https://metacpan.org/release/Binary-Heap-Search"                                                                                 ],
+    bit             => [q(bit),                                                 "https://en.wikipedia.org/wiki/Bit"                                                                                               ],
+    bitterend       => [q(Bitter End),                                          "https://en.wikipedia.org/wiki/Knot#Bitter_end"                                                                                   ],
+    blackbird       => [q(SR71 BlackBird),                                      "https://en.wikipedia.org/wiki/Lockheed_SR-71_Blackbird"                                                                          ],
+    blob            => [q(blob),                                                "https://en.wikipedia.org/wiki/Binary_large_object"                                                                               ],
+    boson           => [q(Boson),                                               "https://en.wikipedia.org/wiki/Boson"                                                                                             ],
+    browser         => [q(web browser),                                         "https://en.wikipedia.org/wiki/Web_browser"                                                                                       ],
+    bulktreeg       => [q(Bulk Tree),                                           "https://github.com/philiprbrenan/TreeBulk"                                                                                       ],
+    button          => [q(Button),                                              "https://en.wikipedia.org/wiki/Button_(computing)"                                                                                ],
+    camelCase       => [q(camelCase),                                           "https://en.wikipedia.org/wiki/Camel_case"                                                                                        ],
+    cauchy          => [q(Augustin Louis Cauchy),                               "https://en.wikipedia.org/wiki/Augustin-Louis_Cauchy"                                                                             ],
+    cdk             => [q(cloud development kit),                               "https://aws.amazon.com/cdk/"                                                                                                     ],
+    certbot         => [q(Certbot),                                             "https://certbot.eff.org/lets-encrypt/ubuntufocal-apache"                                                                         ],
+    cgi             => [q(Common Gateway Interface),                            "https://en.wikipedia.org/wiki/Common_Gateway_Interface"                                                                          ],
+    chatgpt         => [q(Chat GPT),                                            "https://en.wikipedia.org/wiki/ChatGPT"                                                                                           ],
+    chartjs         => [q(Chart.js),                                            "https://www.chartjs.org/"                                                                                                        ],
+    china           => [q(Made In China),                                       "https://www.made-in-china.com/"                                                                                                  ],
+    chmod           => [q(chmod),                                               "https://linux.die.net/man/1/chmod"                                                                                               ],
+    chown           => [q(chown),                                               "https://linux.die.net/man/1/chown"                                                                                               ],
+    cicd            => [q(CI/CD),                                               "https://en.wikipedia.org/wiki/Continuous_integration"                                                                            ],
+    cicero          => [q("The sinews of war are an infinite supply of money"), "https://en.wikipedia.org/wiki/Cicero#Legacy"                                                                                     ],
+    codeMentor      => [q(Code Mentor),                                         "https://www.codementor.io/"                                                                                                      ],
+    commandline     => [q(command line),                                        "https://en.wikipedia.org/wiki/Command-line_interface"                                                                            ],
+    co2             => [q(Carbon Dioxide),                                      "https://en.wikipedia.org/wiki/Carbon_dioxide"                                                                                    ],
+    codementor      => [q(Codementor),                                          'https://www.codementor.io/@philiprbrenan'                                                                                        ],
+    codeMentor      => [q(Codementor),                                          'https://www.codementor.io/@philiprbrenan'                                                                                        ],
+    code            => [q(code),                                                "https://en.wikipedia.org/wiki/Computer_program"                                                                                  ],
+    commandLine     => [q(command line),                                        "https://en.wikipedia.org/wiki/Command-line_interface"                                                                            ],
+    comment         => [q(comment),                                             "https://en.wikipedia.org/wiki/Comment_(computer_programming)"                                                                    ],
+    computer        => [q(computer),                                            "https://en.wikipedia.org/wiki/Computer"                                                                                          ],
+    compuware       => [q(Compuware),                                           "https://en.wikipedia.org/wiki/Compuware",                                                                                        ],
+    concept         => [q(concept),                                             "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/langRef/technicalContent/concept.html#concept"],
+    confess         => [q(confess),                                             "http://perldoc.perl.org/Carp.html#SYNOPSIS/"                                                                                     ],
+    conicSection    => [q(Conic Sections),                                      "https://en.wikipedia.org/wiki/Conic_section"                                                                                     ],
+    conref          => [q(conref),                                              "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/archSpec/base/conref.html#conref"             ],
+    conwayLaw       => [q(Conway's Law),                                        "https://en.wikipedia.org/wiki/Conway%27s_law"                                                                                    ],
+    cookie          => [q(cookie),                                              "https://en.wikipedia.org/wiki/Cookie"                                                                                            ],
+    corpus          => [q(corpus),                                              "https://en.wikipedia.org/wiki/Text_corpus"                                                                                       ],
+    coverage        => [q(coverage),                                            "https://en.wikipedia.org/wiki/Code_coverage"                                                                                     ],
+    cpan            => [q(CPAN),                                                "https://metacpan.org/author/PRBRENAN"                                                                                            ],
+    cpl             => [q(C programming language),                              "https://b-ok.xyz/book/633119/db5c78"                                                                                             ],
+    cpp             => [q(C++ programming language),                            "https://en.wikipedia.org/wiki/C%2B%2B"                                                                                           ],
+    cpu             => [q(CPU),                                                 "https://en.wikipedia.org/wiki/Central_processing_unit"                                                                           ],
+    css             => [q(Cascading Style Sheets),                              "https://en.wikipedia.org/wiki/CSS"                                                                                               ],
+    csv             => [q(csv),                                                 "https://en.wikipedia.org/wiki/Comma-separated_values"                                                                            ],
+    curl            => [q(curl),                                                "https://linux.die.net/man/1/curl"                                                                                                ],
+    dataStructure   => [q(data structure),                                      "https://en.wikipedia.org/wiki/Data_structure"                                                                                    ],
+    db2             => [q(DB2),                                                 "https://en.wikipedia.org/wiki/IBM_Db2_Family"                                                                                    ],
+    dbi             => [q(DBI),                                                 "https://dbi.perl.org/"                                                                                                           ],
+    ddg             => [q(DuckDuckGo),                                          "https://www.duckduckgo.com"                                                                                                      ],
+    ddt             => [q(Data::Table::Text),                                   "https://metacpan.org/pod/Data::Table::Text"                                                                                      ],
+    decartes        => [q(Renee Descartes),                                     "https://en.wikipedia.org/wiki/Ren%C3%A9_Descartes"                                                                               ],
+    dependencies    => [q(dependencies),                                        "https://en.wikipedia.org/wiki/Coupling_(computer_programming)"                                                                   ],
+    dexl            => [q(Data::Edit::Xml::Lint),                               "https://metacpan.org/release/Data-Edit-Xml-Lint"                                                                                 ],
+    dex             => [q(Data::Edit::Xml),                                     "https://metacpan.org/pod/Data::Edit::Xml"                                                                                        ],
+    dexr            => [q(Data::Edit::Xml::Reuse),                              "https://metacpan.org/release/Data-Edit-Xml-Reuse"                                                                                ],
+    dexx            => [q(Data::Edit::Xml::Xref),                               "https://metacpan.org/release/Data-Edit-Xml-Xref"                                                                                 ],
+    dfa             => [q(DFA),                                                 "https://metacpan.org/pod/Data::DFA"                                                                                              ],
+    dhahran         => [q(Dhahran),                                             "https://en.wikipedia.org/wiki/Dhahran"                                                                                           ],
+    die             => [q(die),                                                 "http://perldoc.perl.org/functions/die.html"                                                                                      ],
+    diff            => [q(diff),                                                "https://en.wikipedia.org/wiki/Diff"                                                                                              ],
+    diospiros       => [q(diospiros),                                           "https://en.wikipedia.org/wiki/Persimmon"                                                                                         ],
+    diskdrive       => [q(disk drive),                                          "https://en.wikipedia.org/wiki/Solid-state_drive"                                                                                 ],
+    ditaot          => [q(DITA Open ToolKit),                                   "http://www.dita-ot.org/download"                                                                                                 ],
+    dita            => [q(Dita),                                                "http://docs.oasis-open.org/dita/dita/v1.3/os/part2-tech-content/dita-v1.3-os-part2-tech-content.html"                            ],
+    divtag          => [q(Div tag),                                             "https://en.wikipedia.org/wiki/Span_and_div"                                                                                      ],
+    dns             => [q(Domain Name System),                                  "https://en.wikipedia.org/wiki/Domain_Name_System"                                                                                ],
+    docbook         => [q(DocBook),                                             "https://tdg.docbook.org/tdg/5.1/"                                                                                                ],
+    docker          => [q(Docker),                                              "https://en.wikipedia.org/wiki/Docker_(software)"                                                                                 ],
+    documentation   => [q(documentation),                                       "https://en.wikipedia.org/wiki/Software_documentation"                                                                            ],
+    dol             => [q(Division of Labor),                                   "https://en.wikipedia.org/wiki/Division_of_labour#Adam_Smith"                                                                     ],
+    domain          => [q(domain name),                                         "https://en.wikipedia.org/wiki/Domain_name"                                                                                       ],
+    dom             => [q(Document Object Model),                               "https://developer.mozilla.org/en-US/docs/Web/API/Document_Object_Model"                                                          ],
+    DRY             => [q(Don't Repeat Yourself),                               "https://en.wikipedia.org/wiki/Don%27t_repeat_yourself"                                                                           ],
+    dtd             => [q(DTD),                                                 "https://en.wikipedia.org/wiki/Document_type_definition"                                                                          ],
+    dtpm            => [q(DateTime module),                                     "https://github.com/houseabsolute/DateTime.pm/graphs/contributors"                                                                ],
+    dttg            => [q(Data::Table::Text),                                   "https://github.com/philiprbrenan/DataTableText"                                                                                  ],
+    dtt             => [q(Data::Table::Text),                                   "https://metacpan.org/pod/Data::Table::Text"                                                                                      ],
+    dynamodb        => [q(DynamoDB),                                            "https://aws.amazon.com/dynamodb/"                                                                                                ],
+    ec2Console      => [q(EC2 Console),                                         "https://us-east-1.console.aws.amazon.com/ec2/"                                                                                   ],
+    ec2             => [q(EC2),                                                 "https://aws.amazon.com/ec2/"                                                                                                     ],
+    editCompileTest => [q(Edit, Compile, Test Loop),                            "https://tripack45.github.io/2018/11/03/edit-compile-run/"                                                                        ],
+    edwardSnowden   => [q(Edward Snowden),                                      "https://en.wikipedia.org/wiki/Edward_Snowden"                                                                                    ],
+    effo            => [q(The Case For Fiber),                                  "https://www.eff.org/wp/case-fiber-home-today-why-fiber-superior-medium-21st-century-broadband"                                   ],
+    eff             => [q(The Electronic Frontier Foundation),                  "https://en.wikipedia.org/wiki/Electronic_Frontier_Foundation"                                                                    ],
+    electrons       => [q(electrons),                                           "https://en.wikipedia.org/wiki/Electron"                                                                                          ],
+    elevator        => [q(elevator),                                            "https://en.wikipedia.org/wiki/Elevator"                                                                                          ],
+    emacsVsVi       => [q(Emacs vesus Vi Flame War),                            "https://www.linux.com/news/emacs-vs-vi-endless-geek-holy-war/"                                                                   ],
+    employee        => [q(employee),                                            "https://en.wikipedia.org/wiki/Employment#Employee"                                                                               ],
+    emulator        => [q(emulator),                                            "https://en.wikipedia.org/wiki/Emulator"                                                                                          ],
+    encrypt         => [q(encrypt),                                             "https://en.wikipedia.org/wiki/Encryption"                                                                                        ],
+    english         => [q(English),                                             "https://en.wikipedia.org/wiki/English_language"                                                                                  ],
+    etcPasswd       => [q(/etc/passwd),                                         "https://en.wikipedia.org/wiki/Passwd#Password_file"                                                                              ],
+    euler           => [q(Leonhard Euler),                                      "https://en.wikipedia.org/wiki/Leonhard_Euler"                                                                                    ],
+    eval            => [q(eval),                                                "http://perldoc.perl.org/functions/eval.html"                                                                                     ],
+    extensions      => [q(file name extensions),                                "https://en.wikipedia.org/wiki/List_of_filename_extensions"                                                                       ],
+    fail            => [q(fail),                                                "https://1lib.eu/book/2468851/544b50"                                                                                             ],
+    fatman          => [q(Fat Man),                                             "https://en.wikipedia.org/wiki/Fat_Man"                                                                                           ],
+    fiberOptic      => [q(fiber optic),                                         "https://en.wikipedia.org/wiki/Optical_fiber"                                                                                     ],
+    Fibonacci       => [q(Fibonacci),                                           "https://en.wikipedia.org/wiki/Fibonacci_number"                                                                                  ],
+    file            => [q(file),                                                "https://en.wikipedia.org/wiki/Computer_file"                                                                                     ],
+    fileutility     => [q(File  utility),                                       "https://www.man7.org/linux/man-pages/man1/file.1.html"                                                                           ],
+    find            => [q(find),                                                "https://en.wikipedia.org/wiki/Find_(Unix)"                                                                                       ],
+    foehn           => [q(Foehn),                                               "https://en.wikipedia.org/wiki/Foehn_wind"                                                                                        ],
+    folder          => [q(folder),                                              "https://en.wikipedia.org/wiki/File_folder"                                                                                       ],
+    fork            => [q(fork),                                                "https://en.wikipedia.org/wiki/Fork_(system_call)"                                                                                ],
+    fpga            => [q(fpga),                                                "https://en.wikipedia.org/wiki/Field-programmable_gate_array"                                                                     ],
+    frontend        => [q(front end),                                           "https://en.wikipedia.org/wiki/Front_end_and_back_end"                                                                            ],
+    fsf             => [q(Free Software Foundation),                            "https://www.fsf.org/"                                                                                                            ],
+    fusion          => [q(fusion),                                              "https://en.wikipedia.org/wiki/Nuclear_fusion"                                                                                    ],
+    future          => [q(future),                                              "https://en.wikipedia.org/wiki/Future"                                                                                            ],
+    gantryCrane     => [q(Gantry Crane),                                        "https://en.wikipedia.org/wiki/Gantry_crane"                                                                                      ],
+    Gauss           => [q(Karl Friedrich Gauss),                                "https://en.wikipedia.org/wiki/Carl_Friedrich_Gauss#Anecdotes"                                                                    ],
+    gbstandard      => [q(GB Standard),                                         "http://metacpan.org/pod/Dita::GB::Standard"                                                                                      ],
+    gdpr            => [q(European Directive on Data Protection),               "https://gdpr.eu"                                                                                                                 ],
+    geany           => [q(Geany),                                               "https://www.geany.org"                                                                                                           ],
+    ghc             => [q(Github Automation),                                   "https://metacpan.org/release/GitHub-Crud"                                                                                        ],
+    ghe             => [q(Github Edit),                                         "https://github.com/ricksnp/github-editor"                                                                                        ],
+    ghl             => [q(gohighlevel),                                         "https://gohighlevel.com"                                                                                                         ],
+    gigabit         => [q(gigabit),                                             "https://en.wikipedia.org/wiki/Gigabit_Ethernet"                                                                                  ],
+    gigabyte        => [q(gigabyte),                                            "https://en.wikipedia.org/wiki/Gigabyte"                                                                                          ],
+    githubaction    => [q(GitHub Action),                                       "https://docs.github.com/en/free-pro-team\@latest/actions/quickstart"                                                             ],
+    gitHubAction    => [q(GitHub Action),                                       "https://docs.github.com/en/free-pro-team\@latest/actions/quickstart"                                                             ],
+    gitHubCrud      => [q(GitHub::Crud),                                        "https://metacpan.org/pod/GitHub::Crud"                                                                                           ],
+    githubdp        => [q(GitHub Developer Program),                            "https://github.com/philiprbrenan"                                                                                                ],
+    gitHubDP        => [q(GitHub Developer Program),                            "https://github.com/philiprbrenan"                                                                                                ],
+    github          => [q(GitHub),                                              "https://github.com/philiprbrenan"                                                                                                ],
+    gitHub          => [q(GitHub),                                              "https://github.com/philiprbrenan"                                                                                                ],
+    gitLab          => [q(GitLab),                                              "https://en.wikipedia.org/wiki/GitLab"                                                                                            ],
+    gmt             => [q(Greenwich Mean Time),                                 "https://en.wikipedia.org/wiki/Greenwich_Mean_Time"                                                                               ],
+    gnufdl          => [q(GNU Free Documentation License),                      "https://en.wikipedia.org/wiki/Wikipedia:Text_of_the_GNU_Free_Documentation_License"                                              ],
+    goldenSection   => [q(The Golden Section),                                  "https://en.wikipedia.org/wiki/Golden_ratio"                                                                                      ],
+    gowest          => [q("Go West young man"),                                 "https://en.wikipedia.org/wiki/Go_West,_young_man"                                                                                ],
+    grep            => [q(grep),                                                "https://en.wikipedia.org/wiki/Grep"                                                                                              ],
+    guid            => [q(guid),                                                "https://en.wikipedia.org/wiki/Universally_unique_identifier"                                                                     ],
+    gui             => [q(graphical user interface),                            "https://en.wikipedia.org/wiki/Graphical_user_interface"                                                                          ],
+    gunzip          => [q(gunzip),                                              "https://en.wikipedia.org/wiki/Gunzip"                                                                                            ],
+    gzip            => [q(gzip),                                                "https://en.wikipedia.org/wiki/Gzip"                                                                                              ],
+    hacker          => [q(hacker),                                              "https://1lib.eu/book/643342/813ee7"                                                                                              ],
+    hardDrive       => [q(hard drive),                                          "https://en.wikipedia.org/wiki/Hard_disk_drive"                                                                                   ],
+    hash            => [q(hash),                                                "https://en.wikipedia.org/wiki/Hash_table"                                                                                        ],
+    heapsLaw        => [q(Heap's Law),                                          "https://en.wikipedia.org/wiki/Heaps%27_law"                                                                                      ],
+    help            => [q(help),                                                "https://en.wikipedia.org/wiki/Online_help"                                                                                       ],
+    hexadecimal     => [q(hexadecimal),                                         "https://en.wikipedia.org/wiki/Hexadecimal"                                                                                       ],
+    hipaa           => [q(HIPAA),                                               "https://en.wikipedia.org/wiki/Health_Insurance_Portability_and_Accountability_Act"                                               ],
+    holly           => [q(the computer "Holly" in Red Dwarf),                   "https://www.youtube.com/watch?v=cWB63Wiltxk"                                                                                     ],
+    hpe             => [q(Hewlett Packard Enterprise),                          "https://www.hpe.com/us/en/home.html"                                                                                             ],
+    html            => [q(HTML),                                                "https://en.wikipedia.org/wiki/HTML"                                                                                              ],
+    htmltable       => [q(html table),                                          "https://www.w3.org/TR/html52/tabular-data.html#the-table-element"                                                                ],
+    http            => [q(HTTP),                                                "https://en.wikipedia.org/wiki/HTTP"                                                                                              ],
+    https           => [q(HTTPS),                                               "https://en.wikipedia.org/wiki/HTTPS"                                                                                             ],
+    hxnormalize     => [q(hxnormalize),                                         "https://www.w3.org/Tools/HTML-XML-utils/man1/hxnormalize.html"                                                                   ],
+    ibeam           => [q(I-beam),                                              "https://en.wikipedia.org/wiki/I-beam"                                                                                            ],
+    ibm3270         => [q(IBM 3270),                                            "https://en.wikipedia.org/wiki/IBM_3270"                                                                                          ],
+    ibm             => [q(IBM),                                                 "https://en.wikipedia.org/wiki/IBM"                                                                                               ],
+    ic              => [q(integrated circuit),                                  "https://en.wikipedia.org/wiki/Integrated_circuit"                                                                                ],
+    iconv           => [q(iconv),                                               "https://linux.die.net/man/1/iconv"                                                                                               ],
+    ide             => [q(Integrated Development Environment),                  "https://en.wikipedia.org/wiki/Integrated_development_environment"                                                                ],
+    ietf            => [q(Internet Engineering Task Force),                     "https://en.wikipedia.org/wiki/Internet_Engineering_Task_Force"                                                                   ],
+    imagemagick     => [q(Imagemagick),                                         "https://www.imagemagick.org/script/index.php"                                                                                    ],
+    imc             => [q(Intermodal Shipping Container),                       "https://en.wikipedia.org/wiki/Intermodal_container"                                                                              ],
+    ims             => [q(Information Management System),                       "https://en.wikipedia.org/wiki/IBM_Information_Management_System"                                                                 ],
+    infix           => [q(infix),                                               "https://en.wikipedia.org/wiki/Infix_notation"                                                                                    ],
+    infix           => [q(infix),                                               "https://en.wikipedia.org/wiki/Infix_notation"                                                                                    ],
+    install         => [q(install),                                             "https://en.wikipedia.org/wiki/Installation_(computer_programs)"                                                                  ],
+    intel           => [q(Intel),                                               "https://en.wikipedia.org/wiki/Intel"                                                                                             ],
+    intelsde        => [q(Intel Software Development Emulator),                 "https://software.intel.com/content/www/us/en/develop/articles/intel-software-development-emulator.html"                          ],
+    internet        => [q(Internet),                                            "https://en.wikipedia.org/wiki/Internet"                                                                                          ],
+    iot             => [q(Internet of Things),                                  "https://en.wikipedia.org/wiki/Internet_of_things"                                                                                ],
+    ip6             => [q(IPv6 address),                                        "https://en.wikipedia.org/wiki/IPv6"                                                                                              ],
+    ipaddress       => [q(IP address),                                          "https://en.wikipedia.org/wiki/IP_address"                                                                                        ],
+    ip              => [q(IP address),                                          "https://en.wikipedia.org/wiki/IP_address"                                                                                        ],
+    jasm            => [q(Java Assembly Language),                              "http://www.eg.bucknell.edu/~cs360/java-assembler/jasm.html",                                                                     ],
+    java            => [q(Java),                                                "https://en.wikipedia.org/wiki/Java_(programming_language)"                                                                       ],
+    javascript      => [q(JavaScript),                                          "https://en.wikipedia.org/wiki/JavaScript"                                                                                        ],
+    jetg            => [q(the Guardian),                                        "https://www.theguardian.com/environment/2022/feb/09/nuclear-fusion-heat-record-a-huge-step-in-quest-for-new-energy-source"       ],
+    jetni           => [q(Physics design calculations for the JET neutral injectors), "https://www.sciencedirect.com/science/article/pii/B978008025697950052X"                                                    ],
+    jet             => [q(Joint European Torus),                                "https://en.wikipedia.org/wiki/Joint_European_Torus"                                                                              ],
+    jpg             => [q(JPG),                                                 "https://en.wikipedia.org/wiki/JPEG"                                                                                              ],
+    jquery          => [q(jQuery),                                              "https://jquery.com/"                                                                                                             ],
+    json            => [q(Json),                                                "https://en.wikipedia.org/wiki/JSON"                                                                                              ],
+    kattis          => [q(Kattis),                                              "https://open.kattis.com/problems"                                                                                                ],
+    keyboard        => [q(keyboard),                                            "https://en.wikipedia.org/wiki/Computer_keyboard"                                                                                 ],
+    killarney       => [q(Killarney),                                           "https://en.wikipedia.org/wiki/Killarney"                                                                                         ],
+    kmi             => [q(the "Kobayashi Maru Incident"),                       "https://en.wikipedia.org/wiki/Kobayashi_Maru"                                                                                    ],
+    knuth           => [q(Knuth),                                               "https://en.wikipedia.org/wiki/Donald_Knuth"                                                                                      ],
+    kubuntu         => [q(Kubuntu),                                             "https://kubuntu.org/"                                                                                                            ],
+    laser           => [q(laser),                                               "https://en.wikipedia.org/wiki/Laser"                                                                                             ],
+    learningCurve   => [q(learning curve),                                      "https://en.wikipedia.org/wiki/Learning_curve"                                                                                    ],
+    leibniz         => [q(Gottfried Wilhelm Leibniz),                           "https://en.wikipedia.org/wiki/Gottfried_Wilhelm_Leibniz"                                                                         ],
+    libpq           => [q(libpq),                                               "https://www.postgresql.org/docs/13/libpq.html"                                                                                   ],
+    lib             => [q(library),                                             "https://en.wikipedia.org/wiki/Library_(computing)"                                                                               ],
+    libreoffice     => [q(LibreOffice),                                         "https://www.libreoffice.org/"                                                                                                    ],
+    linkedList      => [q(linked list),                                         "https://en.wikipedia.org/wiki/Lint_(software)"                                                                                   ],
+    linting         => [q(linting),                                             "https://en.wikipedia.org/wiki/Linked_list"                                                                                       ],
+    lint            => [q(lint),                                                "http://xmlsoft.org/xmllint.html"                                                                                                 ],
+    linux           => [q(Linux),                                               "https://en.wikipedia.org/wiki/Linux"                                                                                             ],
+    liseMeitner     => [q(Lise Meitner),                                        "https://en.wikipedia.org/wiki/Lise_Meitner"                                                                                      ],
+    lisp            => [q(Lisp),                                                "https://en.wikipedia.org/wiki/Lisp"                                                                                              ],
+    list            => [q(list),                                                "https://en.wikipedia.org/wiki/Linked_list"                                                                                       ],
+    llm             => [q(Large Language Model),                                "https://en.wikipedia.org/wiki/Large_language_model"                                                                              ],
+    login           => [q(login),                                               "https://en.wikipedia.org/wiki/Login"                                                                                             ],
+    log             => [q(log),                                                 "https://en.wikipedia.org/wiki/Log_file"                                                                                          ],
+    losAlamos       => [q(Los Alamos),                                          "https://en.wikipedia.org/wiki/Project_Y"                                                                                         ],
+    lunchclub       => [q(LunchClub),                                           "https://lunchclub.com/?invite_code=philipb4"                                                                                     ],
+    lvaluemethod    => [q(lvalue method),                                       "http://perldoc.perl.org/perlsub.html#Lvalue-subroutines"                                                                         ],
+    mas             => [q(Math::Algebra::Symbols),                              "https://metacpan.org/pod/Math::Algebra::Symbols"                                                                                 ],
+    matrix          => [q(Matrix),                                              "https://en.wikipedia.org/wiki/Matrix_(mathematics)"                                                                              ],
+    matrices        => [q(Matrices),                                            "https://en.wikipedia.org/wiki/Matrix_(mathematics)"                                                                              ],
+    maze            => [q(Maze),                                                "https://github.com/philiprbrenan/maze"                                                                                           ],
+    md5             => [q(MD5),                                                 "https://en.wikipedia.org/wiki/MD5"                                                                                               ],
+    mdnfetch        => [q(the Javascript Fetch API),                            "https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API"                                                                      ],
+    markDown        => [q(Mark Down),                                           "https://en.wikipedia.org/wiki/Markdown"                                                                                          ],
+    meme            => [q(Meme),                                                "https://en.wikipedia.org/wiki/Meme"                                                                                              ],
+    memory          => [q(memory),                                              "https://en.wikipedia.org/wiki/Computer_memory"                                                                                   ],
+    mentor          => [q(mentor),                                              "https://en.wikipedia.org/wiki/Mentorship"                                                                                        ],
+    mergeSort       => [q(Merge Sort),                                          "https://en.wikipedia.org/wiki/Mergesort"                                                                                          ],
+    metadata        => [q(metadata),                                            "https://en.wikipedia.org/wiki/Metadata"                                                                                          ],
+    mfa             => [q(Multi-factor authentication),                         "https://en.wikipedia.org/wiki/Multi-factor_authentication"                                                                       ],
+    microsoft       => [q(Microsoft)  ,                                         "https://en.wikipedia.org/wiki/Microsoft"                                                                                         ],
+    mideast         => [q(Middle East),                                         "https://en.wikipedia.org/wiki/Middle_East"                                                                                       ],
+    minimalism      => [q(minimalism),                                          "https://en.wikipedia.org/wiki/Minimalism_(computing)"                                                                            ],
+    mod_shib        => [q(mod_shib),                                            "https://wiki.shibboleth.net/confluence/display/SP3/Apache"                                                                       ],
+    module          => [q(module),                                              "https://en.wikipedia.org/wiki/Modular_programming"                                                                               ],
+    mopc            => [q(mop-c),                                               "https://metacpan.org/pod/Preprocess::Ops"                                                                                        ],
+    murphyslaw      => [q(Murphy's Law),                                        "https://en.wikipedia.org/wiki/Murphy%27s_law"                                                                                    ],
+    mvp             => [q(Minimal Viable Product),                              "https://en.wikipedia.org/wiki/Minimum_viable_product"                                                                            ],
+    mysqlMan        => [q(MySql manual),                                        "https://dev.mysql.com/doc/refman/8.0/en/"                                                                                        ],
+    mysql           => [q(MySql),                                               "https://en.wikipedia.org/wiki/MySQL"                                                                                             ],
+    nasm            => [q(NASM - the Netwide Assember),                         "https://github.com/netwide-assembler/nasm"                                                                                       ],
+    nasmx86         => [q(NasmX86),                                             "https://github.com/philiprbrenan/NasmX86"                                                                                        ],
+    newton          => [q(Isaac Newton),                                        "https://en.wikipedia.org/wiki/Isaac_Newton"                                                                                      ],
+    nfa             => [q(NFA),                                                 "https://metacpan.org/pod/Data::NFA"                                                                                              ],
+    nbi             => [q(Neutral Beam Injection),                              "https://en.wikipedia.org/wiki/Neutral-beam_injection"                                                                            ],
+    nodejs          => [q(NodeJs),                                              "https://en.wikipedia.org/wiki/NodeJs"                                                                                            ],
+    oauth           => [q(Oauth),                                               "https://en.wikipedia.org/wiki/OAuth"                                                                                             ],
+    oneliner        => [q(one line program),                                    "https://en.wikipedia.org/wiki/One-liner_program"                                                                                 ],
+    oneLiner        => [q(one line program),                                    "https://en.wikipedia.org/wiki/One-liner_program"                                                                                 ],
+    openoffice      => [q(Apache Open Office),                                  "https://www.openoffice.org/download/index.html"                                                                                  ],
+    opensource      => [q(Open Source),                                         "https://en.wikipedia.org/wiki/Open_source"                                                                                       ],
+    openssl         => [q(Open SSL),                                            "https://www.openssl.org/"                                                                                                        ],
+    operatingSystem => [q(operating system),                                    "https://en.wikipedia.org/wiki/Operating_system"                                                                                  ],
+    origami         => [q(Origami),                                             "https://en.wikipedia.org/wiki/Origami"                                                                                           ],
+    othermeta       => [q(othermeta),                                           "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/contentmodels/cmlto.html#cmlto__othermeta"    ],
+#   our             => [q(our),                                                 "https://perldoc.perl.org/functions/our.html"                                                                                     ],
+    opVengenance    => [q(Operation Vengeance),                                 "https://en.wikipedia.org/wiki/Operation_Vengeance"                                                                               ],
+    pairPrograming  => [q(pair programing),                                     "https://en.wikipedia.org/wiki/Pair_programming"                                                                                  ],
+    pairProgram     => [q(pair program),                                        "https://en.wikipedia.org/wiki/Pair_programming"                                                                                  ],
+    parkinson       => [q(Parkinson's law: work expands to fill the time available), "https://en.wikipedia.org/wiki/Parkinson%27s_law"                                                                            ],
+    parse           => [q(parse),                                               "https://en.wikipedia.org/wiki/Parsing"                                                                                           ],
+    password        => [q(password),                                            "https://en.wikipedia.org/wiki/Password"                                                                                          ],
+    paybackPeriod   => [q(payback period),                                      "https://en.wikipedia.org/wiki/Payback_period#Shortcomings"                                                                       ],
+    pcdInstall      => [q(PCD installation),                                    "https://github.com/philiprbrenan/philiprbrenan.github.io/blob/master/pcd_installation.md"                                        ],
+    pcdLang         => [q(PCD),                                                 "https://philiprbrenan.github.io/data_edit_xml_edit_commands.html"                                                                ],
+    pcd             => [q(Dita::Pcd),                                           "https://metacpan.org/pod/Dita::PCD"                                                                                              ],
+    pdf             => [q(PDF),                                                 "https://en.wikipedia.org/wiki/PDF"                                                                                               ],
+    people          => [q(people),                                              "https://en.wikipedia.org/wiki/Person"                                                                                            ],
+    perlal          => [q(Perl Artistic Licence),                               "https://dev.perl.org/licenses/artistic.html"                                                                                     ],
+    perl            => [q(Perl),                                                "http://www.perl.org/"                                                                                                            ],
+    postgres        => [q(Postgres database),                                   "https://www.postgresql.org/"                                                                                                     ],
+    philCpan        => [q(CPAN),                                                "https://metacpan.org/author/PRBRENAN"                                                                                            ],
+    photoApp        => [q(AppaApps Photo App),                                  "https://github.com/philiprbrenan/AppaAppsGitHubPhotoApp"                                                                         ],
+    php             => [q(PHP),                                                 "https://en.wikipedia.org/wiki/PHP"                                                                                               ],
+    pipe            => [q(pipe),                                                "https://en.wikipedia.org/wiki/Pipeline_(Unix)"                                                                                   ],
+    pi              => [q(𝝿),                                                   "https://en.wikipedia.org/wiki/Pi"                                                                                                ],
+    planckTime      => [q(Planck Time per Joule),                               "https://en.wikipedia.org/wiki/Planck_constant"                                                                                   ],
+    plasma          => [q(plasma),                                              "https://en.wikipedia.org/wiki/Plasma_(physics)"                                                                                  ],
+    pli             => [q(Programming Language One),                            "https://en.wikipedia.org/wiki/PL/I"                                                                                              ],
+    programLanguage => [q(programming language),                                "https://en.wikipedia.org/wiki/Programming_language"                                                                              ],
+    pod             => [q(POD),                                                 "https://perldoc.perl.org/perlpod.html"                                                                                           ],
+    poppler         => [q(Poppler),                                             "https://poppler.freedesktop.org/"                                                                                                ],
+    portugal        => [q(Portugal),                                            "https://en.wikipedia.org/wiki/Portugal"                                                                                          ],
+    postgres        => [q(Postgres),                                            "https://github.com/philiprbrenan/postgres"                                                                                       ],
+    prb             => [q(philip r brenan),                                     "https://prb.appaapps.com//"                                                                                                      ],
+    preprocessor    => [q(preprocessor),                                        "https://en.wikipedia.org/wiki/Preprocessor"                                                                                      ],
+    processes       => [q(processes),                                           "https://en.wikipedia.org/wiki/Process_management_(computing)"                                                                    ],
+    process         => [q(process),                                             "https://en.wikipedia.org/wiki/Process_management_(computing)"                                                                    ],
+    procfs          => [q(Process File System),                                 "https://en.wikipedia.org/wiki/Procfs"                                                                                            ],
+    program         => [q(program),                                             "https://en.wikipedia.org/wiki/Computer_program"                                                                                  ],
+    programs        => [q(programs),                                            "https://en.wikipedia.org/wiki/Computer_program"                                                                                  ],
+    pythagoras      => [q(The Theorem of Pythagoras),                           "https://en.wikipedia.org/wiki/Pythagorean_theorem/"                                                                              ],
+    python          => [q(Python),                                              "https://www.python.org/"                                                                                                         ],
+    quartus         => [q(Intel Quartus Prime),                                 "https://en.wikipedia.org/wiki/Intel_Quartus_Prime"                                                                               ],
+    quicksort       => [q(Quick Sort),                                          "https://github.com/philiprbrenan/QuickSort"                                                                                      ],
+    r53             => [q(Route 53),                                            "https://console.aws.amazon.com/route53"                                                                                          ],
+    rackspace       => [q(Rackspace),                                           "https://www.rackspace.com/"                                                                                                      ],
+    rax             => [q(rax),                                                 "https://en.wikipedia.org/wiki/X86-64#Architectural_features"                                                                     ],
+    recursively     => [q(recursively),                                         "https://en.wikipedia.org/wiki/Recursion"                                                                                         ],
+    recursive       => [q(recursive),                                           "https://en.wikipedia.org/wiki/Recursion"                                                                                         ],
+    relocatable     => [q(relocatable),                                         "https://en.wikipedia.org/wiki/Relocation_%28computing%29"                                                                        ],
+    rfp             => [q(Request For Proposal),                                "https://en.wikipedia.org/wiki/Request_for_proposal"                                                                              ],
+    riyadh          => [q(Riyadh),                                              "https://en.wikipedia.org/wiki/Riyadh"                                                                                            ],
+    rrr             => [q(The R Programming Language),                          "https://en.wikipedia.org/wiki/R_(programming_language)"                                                                          ],
+    rsa             => [q(RSA),                                                 "https://en.wikipedia.org/wiki/RSA_(cryptosystem)"                                                                                ],
+    rsync           => [q(rsync),                                               "https://linux.die.net/man/1/rsync"                                                                                               ],
+    ruby            => [q(Ruby),                                                "https://en.wikipedia.org/wiki/Ruby_(programming_language)"                                                                       ],
+    s370            => [q(IBM System 370),                                      "https://en.wikipedia.org/wiki/IBM_System/370"                                                                                    ],
+    s390            => [q(IBM System 390),                                      "https://en.wikipedia.org/wiki/IBM_System/390"                                                                                    ],
+    s3Console       => [q(S3 Console),                                          "https://s3.console.aws.amazon.com/s3/home"                                                                                       ],
+    s3              => [q(S3),                                                  "https://aws.amazon.com/s3/"                                                                                                      ],
+    saml            => [q(Security Assertion Markup Language),                  "https://en.wikipedia.org/wiki/Security_Assertion_Markup_Language"                                                                ],
+    samltest        => [q(SAML test),                                           "https://samltest.id/"                                                                                                            ],
+    samltools       => [q(SAML tools),                                          "https://www.samltool.com/sp_metadata.php"                                                                                        ],
+    sam             => [q(Serveless Application Model),                         "https://aws.amazon.com/serverless/sam/"                                                                                          ],
+    sandbox         => [q(sandbox),                                             "https://en.wikipedia.org/wiki/Sandbox_(software_development)"                                                                    ],
+    sas             => [q(SAS Institute),                                       "https://en.wikipedia.org/wiki/SAS_Institute"                                                                                     ],
+    securityGroup   => [q(security group),                                      "https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/working-with-security-groups.html"                                           ],
+    selfaware       => [q(self aware),                                          "https://en.wikipedia.org/wiki/Self-awareness"                                                                                    ],
+    server          => [q(server),                                              "https://en.wikipedia.org/wiki/Server_(computing)"                                                                                ],
+    sevenZ          => [q(7z),                                                  "https://en.wikipedia.org/wiki/7z"                                                                                                ],
+    sha             => [q(SHA),                                                 "https://en.wikipedia.org/wiki/SHA-1"                                                                                             ],
+    shell           => [q(shell),                                               "https://en.wikipedia.org/wiki/Shell_(computing)"                                                                                 ],
+    shib            => [q(Shibboleth),                                          "https://www.shibboleth.net/"                                                                                                     ],
+    simd            => [q(SIMD),                                                "https://www.officedaytime.com/simd512e/"                                                                                         ],
+    sqn             => [q(sine qua non),                                        "https://en.wikipedia.org/wiki/Sine_qua_non"                                                                                      ],
+    smartmatch      => [q(smartmatch),                                          "https://perldoc.perl.org/perlop.html#Smartmatch-Operator"                                                                        ],
+    snake_case      => [q(snake_case),                                          "https://en.wikipedia.org/wiki/Snake_case"                                                                                        ],
+    socket          => [q(socket),                                              "https://en.wikipedia.org/wiki/Network_socket"                                                                                    ],
+    sow             => [q(Shibboleth on Windows),                               "http://philiprbrenan.appaapps.com/ShibbolethOnWindows"                                                                           ],
+    spot            => [q(spot),                                                "https://aws.amazon.com/ec2/spot/"                                                                                                ],
+    spreedsheet     => [q(Spreadsheet),                                         "https://en.wikipedia.org/wiki/Spreadsheet"                                                                                       ],
+    sql             => [q(SQL),                                                 "https://en.wikipedia.org/wiki/SQL"                                                                                               ],
+    squareroot      => [q(Square Root),                                         "https://en.wikipedia.org/wiki/Square_root"                                                                                       ],
+    sshfs           => [q(Secure Shell File System),                            "https://en.wikipedia.org/wiki/SSHFS"                                                                                             ],
+    ssh             => [q(Secure Shell),                                        "https://www.ssh.com/ssh"                                                                                                         ],
+    ssxr            => [q(Self Xref),                                           "https://philiprbrenan.github.io/selfServiceXref.pdf"                                                                             ],
+    stderr          => [q(stderr),                                              "https://en.wikipedia.org/wiki/Standard_streams#Standard_input_(stdin)"                                                           ],
+    stdin           => [q(stdin),                                               "https://en.wikipedia.org/wiki/Standard_streams#Standard_input_(stdin)"                                                           ],
+    stdout          => [q(stdout),                                              "https://en.wikipedia.org/wiki/Standard_streams#Standard_input_(stdin)"                                                           ],
+    steel           => [q(steel),                                               "https://en.wikipedia.org/wiki/Steel"                                                                                             ],
+    step            => [q(step),                                                "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/contentmodels/cmlts.html#cmlts__step"         ],
+    steps           => [q(steps),                                               "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/contentmodels/cmlts.html#cmlts__steps"        ],
+    stopwords       => [q(stopwords),                                           "https://metacpan.org/pod/Storable"                                                                                               ],
+    storable        => [q(Storable),                                            "https://metacpan.org/pod/Storable"                                                                                               ],
+    storyLines      => [q(StoryLines),                                          "https://www.storylines.com/careers"                                                                                              ],
+    Strassen        => [q(Strassen Method),                                     "https://en.wikipedia.org/wiki/Strassen_algorithm"                                                                                ],
+    string          => [q(string),                                              "https://en.wikipedia.org/wiki/String_(computer_science)"                                                                         ],
+    strings         => [q(strings),                                             "https://en.wikipedia.org/wiki/String_(computer_science)"                                                                         ],
+    sub             => [q(sub),                                                 "https://perldoc.perl.org/perlsub.html"                                                                                           ],
+    substeps        => [q(substeps),                                            "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/contentmodels/cmlts.html#cmlts__substeps"     ],
+    sws             => [q(Sir Walter Scott),                                    "https://en.wikipedia.org/wiki/Walter_Scott"                                                                                      ],
+    svg             => [q(Scalar Vector Graphics),                              "https://en.wikipedia.org/wiki/Scalable_Vector_Graphics"                                                                          ],
+    table           => [q(table),                                               "https://en.wikipedia.org/wiki/Table_(information)"                                                                               ],
+    tab             => [q(tab),                                                 "https://en.wikipedia.org/wiki/Tab_key"                                                                                           ],
+    taocp           => [q(The Art of Computer Programming),                     "https://en.wikipedia.org/wiki/The_Art_of_Computer_Programming"                                                                   ],
+    transAmerica    => [q(Transamerica),                                        "https://en.wikipedia.org/wiki/Transamerica_Corporation"                                                                          ],
+    tar             => [q(Tar),                                                 "https://en.wikipedia.org/wiki/Tar_(computing)"                                                                                   ],
+    task            => [q(task),                                                "http://docs.oasis-open.org/dita/dita/v1.3/errata02/os/complete/part3-all-inclusive/langRef/technicalContent/task.html#task"      ],
+    tcl             => [q(Tcl),                                                 "https://en.wikipedia.org/wiki/Tcl"                                                                                               ],
+    tdd             => [q(test driven development),                             "https://en.wikipedia.org/wiki/Test-driven_development"                                                                           ],
+    test            => [q(test),                                                "https://en.wikipedia.org/wiki/Software_testing"                                                                                  ],
+    teul            => [q(tanquam ex ungue leonem),                             "https://en.wikipedia.org/wiki/Later_life_of_Isaac_Newton#Bernoulli's_mathematical_challenge"                                     ],
+    textmatch       => [q(text matching),                                       "https://metacpan.org/pod/Text::Match"                                                                                            ],
+    theArtOfWar     => [q(The Art of War),                                      "https://en.wikipedia.org/wiki/The_Art_of_War#Cultural_influence"                                                                 ],
+    theWealthOfNations=> [q(The Wealth of Nations),                             "https://en.wikipedia.org/wiki/The_Wealth_of_Nations"                                                                             ],
+    thp             => [q(Theoretical Computational Physics),                   "https://en.wikipedia.org/wiki/Theoretical_physics"                                                                               ],
+    threeDPrinter   => [q(Three Dimensional Printer),                           "https://en.wikipedia.org/wiki/3D_printing#Processes_and_printers"                                                                ],
+    threeDCamera    => [q(three dimensional camera),                            "https://www.intelrealsense.com/depth-camera-d415/"                                                                               ],
+    timeAndChance   => [q("time and chance happenth to all men"),               "https://www.kingjamesbibleonline.org/Ecclesiastes-9-11/"                                                                         ],
+    tls             => [q(TLS),                                                 "https://en.wikipedia.org/wiki/Transport_Layer_Security"                                                                          ],
+    tmm             => [q(The Mythical Man Month),                              "https://pt1lib.org/book/632726/63ef6f"                                                                                           ],
+    trafalgar       => [q(The Battle of Trafalgar),                             "https://en.wikipedia.org/wiki/Battle_of_Trafalgar"                                                                               ],
+    transamerica    => [q(Transamerica),                                        "https://en.wikipedia.org/wiki/Transamerica_Corporation"                                                                          ],
+    tree            => [q(tree),                                                "https://en.wikipedia.org/wiki/Tree_(data_structure)"                                                                             ],
+    trees           => [q(trees),                                               "https://en.wikipedia.org/wiki/Tree_(data_structure)"                                                                             ],
+    tritium         => [q(tritium),                                             "https://en.wikipedia.org/wiki/Tritium"                                                                                           ],
+    ttk             => [q(Template Toolkit),                                    "https://github.com/abw/Template2/graphs/contributors"                                                                            ],
+    turing          => [q(Turing),                                              "https://en.wikipedia.org/wiki/Alan_Turing"                                                                                       ],
+    ttsa            => [q(Turn The Ship Around),                                "https://en.wikipedia.org/wiki/David_Marquet"                                                                                       ],
+    ubuntu          => [q(Ubuntu),                                              "https://ubuntu.com/download/desktop"                                                                                             ],
+    ucla            => [q(University of California at Los Angeles),             "https://en.wikipedia.org/wiki/University_of_California,_Los_Angeles"                                                             ],
+    ucsd            => [q(University of California at San Diego),               "https://en.wikipedia.org/wiki/University_of_California,_San_Diego"                                                               ],
+    udel            => [q(University of Delaware),                              "https://www.udel.edu/"                                                                                                           ],
+    udp             => [q(User Datagram Protocol),                              "https://en.wikipedia.org/wiki/User_Datagram_Protocol"                                                                            ],
+    userInterface   => [q(user interface),                                      "https://en.wikipedia.org/wiki/User_interface"                                                                                    ],
+    uk              => [q(United Kingdom),                                      "https://en.wikipedia.org/wiki/United_Kingdom"                                                                                    ],
+    uniLancaster    => [q(University of Lancaster),                             "https://en.wikipedia.org/wiki/Lancaster_University"                                                                              ],
+    umas            => [q(Unicode Mathematical Alphanumeric Symbols),           "https://en.wikipedia.org/wiki/Mathematical_Alphanumeric_Symbols"                                                                 ],
+    undef           => [q(undef),                                               "https://perldoc.perl.org/functions/undef.html"                                                                                   ],
+    unexaminedlife  => [q(Socrates: "The unexamined life is not worth living"), "https://en.wikipedia.org/wiki/The_unexamined_life_is_not_worth_living"                                                           ],
+    unicode         => [q(Unicode),                                             "https://en.wikipedia.org/wiki/Unicode"                                                                                           ],
+    unisyn          => [q(UniSyn),                                              "https://github.com/philiprbrenan/UnisynParse"                                                                                    ],
+    universe        => [q(Universe),                                            "https://en.wikipedia.org/wiki/Universe"                                                                                          ],
+    unixHaters      => [q(Unix Haters Handbook),                                "https://1lib.eu/book/750790/8f3128"                                                                                              ],
+    unix            => [q(Unix),                                                "https://en.wikipedia.org/wiki/Unix"                                                                                              ],
+    unoconv         => [q(unoconv),                                             "https://github.com/unoconv/unoconv"                                                                                              ],
+    uow             => [q(Ubuntu on Windows),                                   "http://philiprbrenan.appaapps.com/UbuntuOnWindows"                                                                               ],
+    upc             => [q(Universal Product Code),                              "https://en.wikipedia.org/wiki/Universal_Product_Code"                                                                            ],
+    upload          => [q(upload),                                              "https://en.wikipedia.org/wiki/Upload"                                                                                            ],
+    url             => [q(url),                                                 "https://en.wikipedia.org/wiki/URL"                                                                                               ],
+    usa             => [q(United States),                                       "https://en.wikipedia.org/wiki/United_States"                                                                                     ],
+    usb             => [q(USB),                                                 "https://en.wikipedia.org/wiki/USB"                                                                                     ],
+    userid          => [q(userid),                                              "https://en.wikipedia.org/wiki/User_identifier"                                                                                   ],
+    user            => [q(user),                                                "https://en.wikipedia.org/wiki/User_(computing)"                                                                                  ],
+    uspto           => [q(United States Patent and Trademark Office),           "https://en.wikipedia.org/wiki/USPTO"                                                                                             ],
+    utf8            => [q(utf8),                                                "https://en.wikipedia.org/wiki/UTF-8"                                                                                             ],
+    userExp         => [q(User Experience),                                     "https://en.wikipedia.org/wiki/User_experience"                                                                                   ],
+    vector2         => [q(Vectors In Two Dimensions),                           "https://pypi.org/project/Vector2/"                                                                                                ],
+    verify          => [q(verify),                                              "https://en.wikipedia.org/wiki/Software_verification_and_validation"                                                              ],
+    vhdl            => [q(VHDL),                                                "https://ghdl.readthedocs.io/en/latest/about.html"                                                                                ],
+    vi              => [q(vi),                                                  "https://www.vim.org/"                                                                                                            ],
+    waterfall       => [q(waterfall development methodology),                   "https://en.wikipedia.org/wiki/Waterfall_model"                                                                                   ],
+    webpage         => [q(web page),                                            "https://en.wikipedia.org/wiki/Web_page"                                                                                          ],
+    webpages        => [q(web pages),                                           "https://en.wikipedia.org/wiki/Web_page"                                                                                          ],
+    website         => [q(web site),                                            "https://en.wikipedia.org/wiki/Website"                                                                                           ],
+    wfh             => [q(work from home),                                      "https://en.wikipedia.org/wiki/Remote_work"                                                                                       ],
+    whitespace      => [q(white space),                                         "https://en.wikipedia.org/wiki/Whitespace_character"                                                                              ],
+    whp             => [q(Whp),                                                 "https://www.whp.net/en/"                                                                                                         ],
+    widget          => [q(widget),                                              "https://en.wikipedia.org/wiki/Graphical_widget"                                                                                  ],
+    wikipedia       => [q(Wikipedia),                                           "https://en.wikipedia.org"                                                                                                        ],
+    word            => [q(word),                                                "https://en.wikipedia.org/wiki/Doc_(computing)"                                                                                   ],
+    x64             => [q(X86-64),                                              "https://en.wikipedia.org/wiki/X86-64"                                                                                            ],
+    xmllint         => [q(Xml Lint),                                            "http://xmlsoft.org/xmllint.html"                                                                                                 ],
+    xmlparser       => [q(Xml parser),                                          "https://metacpan.org/pod/XML::Parser/"                                                                                           ],
+    xml             => [q(Xml),                                                 "https://en.wikipedia.org/wiki/XML"                                                                                               ],
+    xref            => [q(Xref),                                                "https://metacpan.org/pod/Data::Edit::Xml::Xref"                                                                                  ],
+    xzcat           => [q(xzcat),                                               "https://en.wikipedia.org/wiki/XZ_Utils"                                                                                          ],
+    xz              => [q(xz),                                                  "https://linux.die.net/man/1/xz"                                                                                                  ],
+    youngtableaug   => [q(Young Tableau on GitHub),                             "https://github.com/philiprbrenan/youngTableauSort/"                                                                              ],
+    youngtableau    => [q(Young Tableau),                                       "https://en.wikipedia.org/wiki/Young_tableau"                                                                                     ],
+    yubikeybio      => [q(Yubi Key Bio),                                        "https://www.yubico.com/products/yubikey-bio-series/"                                                                             ],
+    zerowidthspace  => [q(zero width space),                                    "https://en.wikipedia.org/wiki/Zero-width_space"                                                                                  ],
+    zip             => [q(zip),                                                 "https://linux.die.net/man/1/zip"                                                                                                 ],
+    zoom            => [q(Zoom),                                                "https://zoom.us/"                                                                                                                ],
    );
  } # wellKnownUrls
 
@@ -6570,30 +6788,36 @@ sub expandWellKnownWordsAsUrlsInHtmlFormat($)                                   
   for my $w(sort keys %$wellKnown)                                              # Expand well known words (lowercased) as html links
    {my ($t, $u) = @{$$wellKnown{$w}};
     $string =~ s(L\[$w\]) (<a href="$u">$t</a>)gis;                             # Explicit link
-    $string =~ s(\s$w([.,;:'"]*)\s) ( <a href="$u">$t</a>$1 )gs;                # Word that matches
+    $string =~ s(\s$w([.,;:'"s]*)\s) ( <a href="$u">$t</a>$1 )gs;               # Word that matches - possibly plural
    }
 
-  $string =~ s(W\[(\w+)\]) (<code>$1</code>)gs;                                 # W[...] wraps words with definitions we wish to stress
-  $string =~ s(w\[(\w+)\]) ($1)gsr;                                             # w[...] wraps words with definitions we wish to keep as is
+  $string =~ s(W\[(\w+)\]) (<code>$1</code>)gs;                                 # Use W[...] to wraps words with definitions we wish to stress
+  $string =~ s(w\[(\w+)\]) ($1)gsr;                                             # Use w[...] to wraps words with definitions we wish to keep as is
  }
 
 sub expandWellKnownWordsAsUrlsInMdFormat($)                                     # Expand words found in a string using the md url to supply a definition of that word.
  {my ($string)  = @_;                                                           # String containing url names to expand
   my $wellKnown = wellKnownUrls;                                                # Well known urls to expand
 
-  for my $w(sort keys %$wellKnown)                                              # Expand well known words (lowercased) as html links
-   {my ($t, $u) = @{$$wellKnown{$w}};
-#   $string =~ s(L\[$w\])            (\![$t]($u))gis;                           # Explicit link
-#   $string =~ s(\s$w([.,;:'"]*)\s) ( \![$t]($u)$1 )gs;                         # Word that matches
-    $string =~ s(L\[$w\])            ([$t]($u))gis;                             # Explicit link
-    $string =~ s(\s$w([.,;:'"]*)\s) ( [$t]($u)$1 )gs;                           # Word that matches
+  my @s = split m/```/, $string;                                                # Separate code from text
+  my $i = 0;
+
+  for my $s(@s)
+   {next  unless ++$i % 2;                                                      # Code is in odd sections
+    for my $w(sort keys %$wellKnown)                                            # Expand well known words (lowercased) as html links
+     {my ($t, $u) = @{$$wellKnown{$w}};
+      $s =~ s(L\[$w\])            ([$t]($u))gis;                                # Explicit link
+      $s =~ s(\s$w([.,;:'"]*)\s) ( [$t]($u)$1 )gs;                              # Word that matches
+     }
    }
 
-  $string =~ s(W\[(\w+)\]) (```$1```)gs;                                        # W[...] wraps words with definitions we wish to stress
-  $string =~ s(w\[(\w+)\]) ($1)gsr;                                             # w[...] wraps words with definitions we wish to keep as is
+  $string = join '```', @s;
+
+  $string =~ s(W\[(\w+)\]) (```$1```)gs;                                        # Use W[...] wraps words with definitions we wish to stress
+  $string =~ s(w\[(\w+)\]) ($1)gsr;                                             # Use w[...] wraps words with definitions we wish to keep as is
  }
 
-sub reinstateWellKnown($)                                                       #P Contract references to well known Urls to their abbreviated form
+sub reinstateWellKnown($)                                                       #P Contract references to well known Urls to their abbreviated form.
  {my ($string)  = @_;                                                           # Source string
   my $wellKnown = wellKnownUrls;                                                # Well known urls to contract
 
@@ -6605,7 +6829,7 @@ sub reinstateWellKnown($)                                                       
   $string                                                                       # Result
  }
 
-sub expandWellKnownUrlsInPerlFormat($)                                          # Expand short L<url> names found in a string in the format LE<lt>url-nameE<gt> using the Perl POD syntax
+sub expandWellKnownUrlsInPerlFormat($)                                          # Expand short L<url> names found in a string in the format LE<lt>url-nameE<gt> using the Perl POD syntax.
  {my ($string)  = @_;                                                           # String containing url names to expand
   my $wellKnown = wellKnownUrls;                                                # Well known urls to expand
 
@@ -6646,7 +6870,7 @@ sub expandWellKnownUrlsInHtmlFromPerl($)                                        
   $string                                                                       # Result
  }
 
-sub expandWellKnownUrlsInPod2Html($)                                            # Expand short L<url> names found in a string in the format =begin html format
+sub expandWellKnownUrlsInPod2Html($)                                            # Expand short L<url> names found in a string in the format =begin html format.
  {my ($string)  = @_;                                                           # String containing url names to expand
   my $wellKnown = wellKnownUrls;                                                # Well known urls to expand
 
@@ -6677,6 +6901,11 @@ sub expandWellKnownUrlsInDitaFormat($)                                          
   $string                                                                       # Result
  }
 
+sub expandWellKnownWordsInMarkDownFile($$)                                      #P Expand well known words in a mark down file.
+ {my ($s, $t) = @_;                                                             # Source file, target file
+  owf $t, expandWellKnownWordsAsUrlsInMdFormat readFile $s
+ }
+
 sub formatSourcePodAsHtml                                                       #P Format the L<pod> in the current source file as L<html>.
  {my $s1 = readFile $0;                                                         # Read source file
   my $s2 = expandWellKnownUrlsInPerlFormat $s1;                                 # Expand Perl links
@@ -6699,7 +6928,7 @@ sub expandNewLinesInDocumentation($)                                            
 sub extractTest($)                                                              #P Remove example markers from test code.
  {my ($string) = @_;                                                            # String containing test line
  #$string =~ s/\A\s*{?(.+?)\s*#.*\Z/$1/;                                        # Remove any initial white space and possible { and any trailing white space and comments
-  $string =~ s(#T(\w|:)+) ()gs;                                                 # Remove test tags from line
+  $string =~ s(#[T#](\w|:)+) ()gs;                                              # Remove test tags from line
   $string
  }
 
@@ -6716,7 +6945,7 @@ sub extractCodeBlock($;$)                                                       
   my $b = 2;                                                                    #CODEBLOCK-end
  }
 
-sub updateDocumentation(;$)                                                     # Update the documentation for a Perl module from the comments in its source code. Comments between the lines marked with:\m  #Dn title # description\mand:\m  #D\mwhere n is either 1, 2 or 3 indicating the heading level of the section and the # is in column 1.\mMethods are formatted as:\m  sub name(signature)      #FLAGS comment describing method\n   {my ($parameters) = @_; # comments for each parameter separated by commas.\mFLAGS can be chosen from:\m=over\m=item I\mmethod of interest to new users\m=item P\mprivate method\m=item r\moptionally replaceable method\m=item R\mrequired replaceable method\m=item S\mstatic method\m=item X\mdie rather than received a returned B<undef> result\m=back\mOther flags will be handed to the method extractDocumentationFlags(flags to process, method name) found in the file being documented, this method should return [the additional documentation for the method, the code to implement the flag].\mText following 'E\xxample:' in the comment (if present) will be placed after the parameters list as an example. Lines containing comments consisting of '#T'.methodName will also be aggregated and displayed as examples for that method.\mLines formatted as:\m  BEGIN{*source=*target}\mstarting in column 1 will define a synonym for a method.\mLines formatted as:\m  #C emailAddress text\mwill be aggregated in the acknowledgments section at the end of the documentation.\mThe character sequence B<\\xn> in the comment will be expanded to one new line, B<\\xm> to two new lines and B<L>B<<$_>>,B<L>B<<confess>>,B<L>B<<die>>,B<L>B<<eval>>,B<L>B<<lvalueMethod>> to links to the perl documentation.\mSearch for '#D1': in L<https://metacpan.org/source/PRBRENAN/Data-Table-Text-20180810/lib/Data/Table/Text.pm> to see  more examples of such documentation in action - although it is quite difficult to see as it looks just like normal comments placed in the code.\mParameters:\n
+sub updateDocumentation(;$)                                                     # Update the documentation for a Perl module from the comments in its source code. Comments between the lines marked with:\m  #Dn title # description\mand:\m  #D\mwhere n is either 1, 2 or 3 indicating the heading level of the section and the # is in column 1.\mMethods are formatted as:\m  sub name(signature)      #FLAGS comment describing method\n   {my ($parameters) = @_; # comments for each parameter separated by commas.\mFLAGS can be chosen from:\m=over\m=item I\mmethod of interest to new users\m=item P\mprivate method\m=item r\moptionally replaceable method\m=item R\mrequired replaceable method\m=item S\mstatic method\m=item X\mdie rather than received a returned B<undef> result\m=back\mOther flags will be handed to the method extractDocumentationFlags(flags to process, method name) found in the file being documented, this method should return [the additional documentation for the method, the code to implement the flag].\mText following 'E\xxample:' in the comment (if present) will be placed after the parameters list as an example. Lines containing comments consisting of '#[T#]'.methodName will also be aggregated and displayed as examples for that method.\mLines formatted as:\m  BEGIN{*source=*target}\mstarting in column 1 will define a synonym for a method.\mLines formatted as:\m  #C emailAddress text\mwill be aggregated in the acknowledgments section at the end of the documentation.\mThe character sequence B<\\xn> in the comment will be expanded to one new line, B<\\xm> to two new lines and B<L>B<<$_>>,B<L>B<<confess>>,B<L>B<<die>>,B<L>B<<eval>>,B<L>B<<lvalueMethod>> to links to the perl documentation.\mSearch for '#D1': in L<https://metacpan.org/source/PRBRENAN/Data-Table-Text-20180810/lib/Data/Table/Text.pm> to see  more examples of such documentation in action - although it is quite difficult to see as it looks just like normal comments placed in the code.\mParameters:\n.
  {my ($perlModule) = @_;                                                        # Optional file name with caller's file being the default
   $perlModule //= $0;                                                           # Extract documentation from the caller if no perl module is supplied
   my $package = perlPackage($perlModule);                                       # Package name
@@ -6753,7 +6982,7 @@ sub updateDocumentation(;$)                                                     
   my %unitary;                                                                  # A unitary method - all of its parameters other than the first are strings or numbers
   my $version;                                                                  # Version of package being documented
   my @ctags;                                                                    # Ctags file in pipe format for each sub
-  my %moduleDescription;                                                        # {section}{method}{detail}=value
+  my %moduleDescription;                                                        # Hash of {section}{method}{detail}=value
 
   my $sourceIsString = $perlModule =~ m(\n)s;                                   # Source of documentation is a string not a file
   my $Source = my $source = $sourceIsString ? $perlModule:readFile($perlModule);# Read the perl module from a file unless it is a string not a file
@@ -6793,7 +7022,7 @@ END
 
   for my $l(keys @lines)                                                        # Tests associated with each method
    {my $line = $lines[$l];
-    if (my @tags = $line =~ m/(?:\s#T((?:\w|:)+))/g)
+    if (my @tags = $line =~ m/(?:\s#[T#]((?:\w|:)+))/g)
      {my %tags; $tags{$_}++ for @tags;
 
       for(grep {$tags{$_} > 1} sort keys %tags)                                 # Check for duplicate example names on the same line
@@ -6870,7 +7099,7 @@ END
   for my $l(keys @lines)                                                        # Generated objects
    {my $M = $maxLinesInExample;
     my $line = $lines[$l];
-    if ($line =~ m(genHash\s*\x28\s*(q\x28.+\x29|__PACKAGE__).+?# (.+)\Z))
+    if ($line =~ m(genHash\s*\x28\s*(q\x28.+\x29|__PACKAGE__).+?# (.+)\Z))      # GenHash
      {my $p = $1; my $c = $2;
          $p = $p =~ s(q[qw]?\x28|\x29) ()gsr =~ s(__PACKAGE__) ($package)gsr;
       $genHashPackage{$p} = $c;
@@ -6976,6 +7205,7 @@ END
                               s/\A\x28//gsr     =~
                               s/\x29\s*(:lvalue\s*)?\Z//gsr;
       my $name      = $sub =~ s/\x28.*?\x29//r;                                 # Method name after removing parameters
+         $name      =~ s(\s*\{)    ()gs;                                        # Remove opening curly used to show that the method does not have a standard parameter list
 
       my $methodX   = $flags =~ m/X/;                                           # Die rather than return undef
       my $private   = $flags =~ m/P/;                                           # Private
@@ -7033,7 +7263,7 @@ END
          $signatureNames{$name} = $signatureNames;
 
       my $signatureLength = length($signature =~ s([;\\]) ()gsr);               # Number of parameters in signature
-      @parameters == $signatureLength or                                        # Check signature length
+      @parameters == $signatureLength or $line =~ m(\{)  or                     # Check signature length
         confess "Wrong number of parameter descriptions for method: ".
           "$name($signature)\n";
 
@@ -7042,7 +7272,8 @@ END
       if (1)                                                                    # Check parameters comment
        {my $p = @parmDescriptions;
         my $l = $signatureLength;
-        $p == $l or fff $L, $perlModule, <<"END";
+#       $p == $l or $line =~ m(\{) or fff $L, $perlModule, <<"END";
+        $p == $l or $line =~ m(\{) or fff $L, <<"END";
 Method:
 
   $name($signature)
@@ -7343,7 +7574,7 @@ L<http://www.appaapps.com|http://www.appaapps.com>
 
 `head1 Copyright
 
-Copyright (c) 2016-2021 Philip R Brenan.
+Copyright (c) 2016-2023 Philip R Brenan.
 
 This module is free software. It may be used, redistributed and/or modified
 under the same terms as Perl itself.
@@ -7411,7 +7642,8 @@ END
 
   for my $m(sort keys %title)                                                   # Links to titles
    {my $t = $title{$m};
-    $doc =~ s(L\[$m\]) (L<$m|/"$t">)gs;
+       $t = substr($t, 0, 256) if length($t) > 256;                             # Otherwise some one line subroutines produce very long titles
+    $doc =~ s(L\[$m\]) (L<$m|/"$t">)gs unless $m =~ m(\{);                      # Unless a one line subroutine
    }
 
   unless($sourceIsString)                                                       # Update source file
@@ -7452,7 +7684,7 @@ sub updatePerlModuleDocumentation($)                                            
       " (sleep 5 && rm zzz.html pod2htmd.tmp) &");
  }
 
-sub extractPythonDocumentationFromFiles(@)                                      #P Extract python documentation from the specified files
+sub extractPythonDocumentationFromFiles(@)                                      #P Extract python documentation from the specified files.
  {my (@sources) = @_;                                                           # Python source files
 
   my $docRe = qr(['"]{3});                                                      # Doc string marker
@@ -7584,7 +7816,7 @@ sub extractPythonDocumentationFromFiles(@)                                      
        {$classFiles{$class}       = $class = $1;
         $classDefinitions{$class} = getDocString
        }
-      elsif ($text =~ m(\A\s*if\s+1\s*:\s*#T(\w+)))                             # Test as if 1: statement
+      elsif ($text =~ m(\A\s*if\s+1\s*:\s*#[T#](\w+)))                          # Test as if 1: statement
        {my $test = $1;
         my @test;
         while(@text and $text[0] !~ m(\A\s*\Z))
@@ -7592,7 +7824,7 @@ sub extractPythonDocumentationFromFiles(@)                                      
          }
         push $tests{$class}{$test}->@*, @test;
        }
-      elsif ($text =~ m(\A(.*?)#T(\w+)))                                        # Test on a single line
+      elsif ($text =~ m(\A(.*?)#[T#](\w+)))                                     # Test on a single line
        {my ($text, $test) = @{^CAPTURE};;
         push @{$testsCommon{$test}}, $text;
        }
@@ -7742,9 +7974,9 @@ use vars qw(@ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
  binModeAllUtf8 boldString boldStringUndo
  call callSubInOverlappedParallel callSubInParallel checkFile checkFilePath
  checkFilePathDir checkFilePathExt checkKeys childPids chooseStringAtRandom
- clearFolder cmpArrays confirmHasCommandLineCommand
+ clearFolder cmpArrays compareArraysAndExplain confirmHasCommandLineCommand
  containingFolderName containingPowerOfTwo contains
- convertUtf8ToUtf32 convertUtf32ToUtf8
+ convertUtf8ToUtf32 convertUtf32ToUtf8 convertUtf32ToUtf8LE
  convertDocxToFodt convertImageToJpx convertPerlToJavaScript convertUnicodeToXml copyBinaryFile
  copyBinaryFileMd5Normalized copyBinaryFileMd5NormalizedCreate
  copyBinaryFileMd5NormalizedGetCompanionContent copyFile copyFileFromRemote
@@ -7755,15 +7987,17 @@ use vars qw(@ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
  currentDirectory currentDirectoryAbove cutOutImagesInFodtFile
  dateStamp dateTimeStamp dateTimeStampName ddd deSquareArray decodeBase64
  decodeJson deduplicateSequentialWordsInString detagString
+ divideIntegersIntoRanges
+ divideCharactersIntoRanges
  downloadGitHubPublicRepo dumpFile dumpFileAsJson dumpGZipFile
  dumpTempFile dumpTempFileAsJson
  enclosedReversedString enclosedReversedStringUndo enclosedString
  enclosedStringUndo encodeBase64 encodeJson evalFile evalGZipFile
- execPerlOnRemote expandNewLinesInDocumentation expandWellKnownUrlsInDitaFormat
+ execPerlOnRemote expandNewLinesInDocumentation expandWellKnownUrlsInDitaFormat expandWellKnownWordsInMarkDownFile
  expandWellKnownUrlsInHtmlFormat expandWellKnownWordsAsUrlsInHtmlFormat expandWellKnownWordsAsUrlsInMdFormat
  expandWellKnownUrlsInHtmlFromPerl expandWellKnownUrlsInPod2Html
  expandWellKnownUrlsInPerlFormat extractCodeBlock
- extractPythonDocumentationFromFiles evalFileAsJson
+ extractPythonDocumentationFromFiles evalFileAsJson evalOrConfess
  fe fff fileInWindowsFormat fileLargestSize fileList fileMd5Sum fileModTime
  fileOutOfDate filePath filePathDir filePathExt fileSize findDirs
  findFileWithExtension findFiles firstFileThatExists firstNChars
@@ -7775,9 +8009,12 @@ use vars qw(@ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
  fullFileName fullyQualifiedFile fullyQualifyFile
  genClass genHash genLValueArrayMethods genLValueHashMethods
  genLValueScalarMethods genLValueScalarMethodsWithDefaultValues getSubName
+ getSystemConstantsFromIncludeFile getStructureSizeFromIncludeFile getFieldOffsetInStructureFromIncludeFile
  guidFromMd5 guidFromString
  hexToAsciiString hostName htmlToc
- imageSize indentString indexOfMax indexOfMin intersectionOfHashKeys
+ imageSize
+ includeFiles
+ indentString indexOfMax indexOfMin intersectionOfHashKeys
  intersectionOfHashesAsArrays invertHashOfHashes ipAddressViaArp isBlank
  ipAddressOfHost
  isFileUtf8 isSubInPackage
@@ -7798,7 +8035,7 @@ use vars qw(@ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
  moveFileNoClobber moveFileWithClobber
  nameFromFolder nameFromString nameFromStringRestrictedToTitle newProcessStarter
  newServiceIncarnation newUdsr newUdsrClient newUdsrServer numberOfCpus
- numberOfLinesInFile numberOfLinesInString nws
+ numberOfLinesInFile numberOfLinesInString numberWithCommas nws
  onAws onAwsPrimary onAwsSecondary overWriteBinaryFile overWriteFile
  overrideAndReabsorbMethods owf
  overWriteHtmlFile overWritePerlCgiFile
@@ -7828,6 +8065,7 @@ use vars qw(@ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
  showGotVersusWanted
  squareArray startProcess storeFile stringMd5Sum
  stringsAreNotEqual subScriptString subScriptStringUndo sumAbsAndRel
+ subNameTraceBack
  summarizeColumn superScriptString superScriptStringUndo swapFilePrefix
  swapFolderPrefix syncFromS3InParallel syncToS3InParallel
  temporaryDirectory temporaryFile temporaryFolder timeStamp
@@ -8036,7 +8274,7 @@ Data::Table::Text - Write data in tabular text format.
 Write data in tabular text format.
 
 
-Version 20210730.
+Version 20230422.
 
 
 The following sections describe the methods in each functional area of this
@@ -8064,7 +8302,7 @@ Remove all the files and folders under and including the specified B<$folder> as
 
 L<dateTimeStamp|/dateTimeStamp>
 
-Year-monthNumber-day at hours:minute:seconds
+Year-monthNumber-day at hours:minute:seconds.
 
 L<execPerlOnRemote($code, $ip)|/execPerlOnRemote($code, $ip)>
 
@@ -8082,7 +8320,7 @@ L<formatTable($data, $columnTitles, @options)|/formatTable($data, $columnTitles,
 
 Format various B<$data> structures as a table with titles as specified by B<$columnTitles>: either a reference to an array of column titles or a string each line of which contains the column title as the first word with the rest of the line describing that column.
 
-Optionally create a report from the table using the report B<%options> described in L<formatTableCheckKeys>
+Optionally create a report from the table using the report B<%options> described in L<formatTableCheckKeys>.
 
 L<genHash($bless, %attributes)|/genHash($bless, %attributes)>
 
@@ -8106,7 +8344,7 @@ Process the elements of an array in parallel using a maximum of B<$maximumNumber
 
 L<searchDirectoryTreeForSubFolders($folder)|/searchDirectoryTreeForSubFolders($folder)>
 
-Search the specified directory under the specified folder for sub folders
+Search the specified directory under the specified folder for sub folders.
 
 L<searchDirectoryTreesForMatchingFiles(@FoldersandExtensions)|/searchDirectoryTreesForMatchingFiles(@FoldersandExtensions)>
 
@@ -8122,7 +8360,7 @@ Write to a new B<$file>, after creating a path to the file with L<makePath> if n
 
 L<xxxr($cmd, $ip)|/xxxr($cmd, $ip)>
 
-Execute a command B<$cmd> via bash on the server whose ip address is specified by B<$ip> or returned by L<awsIp>. The command will be run using the userid listed in F<.ssh/config>
+Execute a command B<$cmd> via bash on the server whose ip address is specified by B<$ip> or returned by L<awsIp>. The command will be run using the userid listed in F<.ssh/config>.
 
 
 
@@ -8133,16 +8371,16 @@ Date and timestamps as used in logs of long running commands.
 
 =head2 dateTimeStamp()
 
-Year-monthNumber-day at hours:minute:seconds
+Year-monthNumber-day at hours:minute:seconds.
 
 
 B<Example:>
 
 
-  
+
   ok dateTimeStamp     =~ m(\A\d{4}-\d\d-\d\d at \d\d:\d\d:\d\d\Z), q(dts);         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 dateTimeStampName()
 
@@ -8152,62 +8390,62 @@ Date time stamp without white space.
 B<Example:>
 
 
-  
+
   ok dateTimeStampName =~ m(\A_on_\d{4}_\d\d_\d\d_at_\d\d_\d\d_\d\d\Z);             # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 dateStamp()
 
-Year-monthName-day
+Year-monthName-day.
 
 
 B<Example:>
 
 
-  
+
   ok dateStamp         =~ m(\A\d{4}-\w{3}-\d\d\Z);                                  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 versionCode()
 
-YYYYmmdd-HHMMSS
+YYYYmmdd-HHMMSS.
 
 
 B<Example:>
 
 
-  
+
   ok versionCode       =~ m(\A\d{8}-\d{6}\Z);                                       # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 versionCodeDashed()
 
-YYYY-mm-dd-HH:MM:SS
+YYYY-mm-dd-HH:MM:SS.
 
 
 B<Example:>
 
 
-  
+
   ok versionCodeDashed =~ m(\A\d{4}-\d\d-\d\d-\d\d:\d\d:\d\d\Z);                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 timeStamp()
 
-hours:minute:seconds
+Hours:minute:seconds.
 
 
 B<Example:>
 
 
-  
+
   ok timeStamp         =~ m(\A\d\d:\d\d:\d\d\Z);                                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 microSecondsSinceEpoch()
 
@@ -8217,10 +8455,10 @@ Micro seconds since unix epoch.
 B<Example:>
 
 
-  
+
   ok microSecondsSinceEpoch > 47*365*24*60*60*1e6;                                  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head1 Command execution
 
@@ -8228,7 +8466,7 @@ Various ways of processing commands and writing results.
 
 =head2 ddd(@data)
 
-Dump data
+Dump data.
 
      Parameter  Description
   1  @data      Messages
@@ -8236,10 +8474,10 @@ Dump data
 B<Example:>
 
 
-  
+
   ddd "Hello";                                                                      # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 fff($line, $file, @m)
 
@@ -8253,10 +8491,10 @@ Confess a message with a line position and a file that Geany will jump to if cli
 B<Example:>
 
 
-  
+
   fff __LINE__, __FILE__, "Hello world";                                            # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 lll(@messages)
 
@@ -8268,10 +8506,10 @@ Log messages with a time stamp and originating file and line number.
 B<Example:>
 
 
-  
+
   lll "Hello world";                                                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mmm(@messages)
 
@@ -8283,10 +8521,10 @@ Log messages with a differential time in milliseconds and originating file and l
 B<Example:>
 
 
-  
+
   mmm "Hello world";                                                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 xxx(@cmd)
 
@@ -8298,14 +8536,14 @@ Execute a shell command optionally checking its response. The command to execute
 B<Example:>
 
 
-  
+
    {ok xxx("echo aaa")       =~ /aaa/;                                              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 xxxr($cmd, $ip)
 
-Execute a command B<$cmd> via bash on the server whose ip address is specified by B<$ip> or returned by L<awsIp>. The command will be run using the userid listed in F<.ssh/config>
+Execute a command B<$cmd> via bash on the server whose ip address is specified by B<$ip> or returned by L<awsIp>. The command will be run using the userid listed in F<.ssh/config>.
 
      Parameter  Description
   1  $cmd       Command string
@@ -8314,12 +8552,12 @@ Execute a command B<$cmd> via bash on the server whose ip address is specified b
 B<Example:>
 
 
-  if (0)                                                                          
-  
+  if (0)
+
    {ok xxxr q(pwd);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    }
-  
+
 
 =head2 yyy($cmd)
 
@@ -8331,13 +8569,13 @@ Execute a block of shell commands line by line after removing comments - stop if
 B<Example:>
 
 
-  
+
     ok !yyy <<END;                                                                  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   echo aaa
   echo bbb
   END
-  
+
 
 =head2 zzz($cmd, $success, $returnCode, $message)
 
@@ -8352,13 +8590,13 @@ Execute lines of commands after replacing new lines with && then check that the 
 B<Example:>
 
 
-  
+
   ok zzz(<<END, qr(aaa\s*bbb)s);                                                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   echo aaa
   echo bbb
   END
-  
+
 
 =head2 execPerlOnRemote($code, $ip)
 
@@ -8371,15 +8609,15 @@ Execute some Perl B<$code> on the server whose ip address is specified by B<$ip>
 B<Example:>
 
 
-  
+
     ok execPerlOnRemote(<<'END') =~ m(Hello from: t2.micro)i;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   #!/usr/bin/perl -I/home/phil/perl/cpan/DataTableText/lib/
   use Data::Table::Text qw(:all);
-  
+
   say STDERR "Hello from: ", awsCurrentInstanceType;
   END
-  
+
 
 =head2 parseCommandLineArguments($sub, $args, $valid)
 
@@ -8393,7 +8631,7 @@ Call the specified B<$sub> after classifying the specified array of [arguments] 
 B<Example:>
 
 
-  
+
     my $r = parseCommandLineArguments {[@_]}  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      [qw( aaa bbb -c --dd --eee=EEEE -f=F), q(--gg=g g), q(--hh=h h)];
@@ -8401,9 +8639,9 @@ B<Example:>
       [["aaa", "bbb"],
        {c=>undef, dd=>undef, eee=>"EEEE", f=>"F", gg=>"g g", hh=>"h h"},
       ];
-  
-  if (1)                                                                          
-  
+
+  if (1)
+
    {my $r = parseCommandLineArguments  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      {ok 1;
@@ -8412,7 +8650,7 @@ B<Example:>
      [qw(--aAa=AAA --bbB=BBB)], [qw(aaa bbb ccc)];
     is_deeply $r, {aaa=>'AAA', bbb=>'BBB'};
    }
-  
+
 
 =head2 call($sub, @our)
 
@@ -8430,7 +8668,7 @@ B<Example:>
     our %a = (a=>1);
     our $b = q(1);
     for(2..4) {
-  
+
       call {$a = $_  x 1e3; $a[0] = $_ x 1e2; $a{a} = $_ x 1e1; $b = 2;} qw($a @a %a);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       ok $a    == $_ x 1e3;
@@ -8438,7 +8676,26 @@ B<Example:>
       ok $a{a} == $_ x 1e1;
       ok $b    == 1;
      }
-  
+
+
+=head2 evalOrConfess(@c)
+
+Evaluate some code successfully or confess as to why it failed to evaluate successfully.
+
+     Parameter  Description
+  1  @c         Code to evaluate
+
+B<Example:>
+
+
+
+    ok evalOrConfess("1") == 1;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+    my $r = eval {evalOrConfess "++ ++"};  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+    ok $@ =~ m(syntax error);
+
 
 =head1 Files and paths
 
@@ -8458,12 +8715,12 @@ Get the size of a B<$file> in bytes.
 B<Example:>
 
 
-    my $f = writeFile("zzz.data", "aaa");                                         
-  
-  
+    my $f = writeFile("zzz.data", "aaa");
+
+
     ok fileSize($f) == 3;                                                           # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 fileLargestSize(@files)
 
@@ -8477,15 +8734,15 @@ B<Example:>
 
     my $d = temporaryFolder;
     my @f = map {owf(fpe($d, $_, q(txt)), 'X' x ($_ ** 2 % 11))} 1..9;
-  
-  
+
+
     my $f = fileLargestSize(@f);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok fn($f) eq '3', 'aaa';
-  
+
   #  my $b = folderSize($d);                                                       # Needs du
   #  ok $b > 0, 'bbb';
-  
+
     my $c = processFilesInParallel(
       sub
        {my ($file) = @_;
@@ -8494,9 +8751,9 @@ B<Example:>
       sub
        {scalar @_;
        }, (@f) x 12);
-  
+
     ok 108 == $c, 'cc11';
-  
+
     my $C = processSizesInParallel
       sub
        {my ($file) = @_;
@@ -8505,9 +8762,9 @@ B<Example:>
       sub
        {scalar @_;
        }, map {[fileSize($_), $_]} (@f) x 12;
-  
+
     ok 108 == $C, 'cc2';
-  
+
     my $J = processJavaFilesInParallel
       sub
        {my ($file) = @_;
@@ -8516,11 +8773,11 @@ B<Example:>
       sub
        {scalar @_;
        }, (@f) x 12;
-  
+
     ok 108 == $J, 'cc3';
-  
+
     clearFolder($d, 12);
-  
+
 
 =head3 folderSize($folder)
 
@@ -8534,15 +8791,15 @@ B<Example:>
 
     my $d = temporaryFolder;
     my @f = map {owf(fpe($d, $_, q(txt)), 'X' x ($_ ** 2 % 11))} 1..9;
-  
+
     my $f = fileLargestSize(@f);
     ok fn($f) eq '3', 'aaa';
-  
-  
+
+
   #  my $b = folderSize($d);                                                       # Needs du  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   #  ok $b > 0, 'bbb';
-  
+
     my $c = processFilesInParallel(
       sub
        {my ($file) = @_;
@@ -8551,9 +8808,9 @@ B<Example:>
       sub
        {scalar @_;
        }, (@f) x 12);
-  
+
     ok 108 == $c, 'cc11';
-  
+
     my $C = processSizesInParallel
       sub
        {my ($file) = @_;
@@ -8562,9 +8819,9 @@ B<Example:>
       sub
        {scalar @_;
        }, map {[fileSize($_), $_]} (@f) x 12;
-  
+
     ok 108 == $C, 'cc2';
-  
+
     my $J = processJavaFilesInParallel
       sub
        {my ($file) = @_;
@@ -8573,11 +8830,11 @@ B<Example:>
       sub
        {scalar @_;
        }, (@f) x 12;
-  
+
     ok 108 == $J, 'cc3';
-  
+
     clearFolder($d, 12);
-  
+
 
 =head3 fileMd5Sum($file)
 
@@ -8589,38 +8846,38 @@ Get the Md5 sum of the content of a B<$file>.
 B<Example:>
 
 
-  
+
     fileMd5Sum(q(/etc/hosts));                                                      # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     my $s = join '', 1..100;
     my $m = q(ef69caaaeea9c17120821a9eb6c7f1de);
-  
+
     ok stringMd5Sum($s) eq $m;
-  
+
     my $f = writeFile(undef, $s);
-  
+
     ok fileMd5Sum($f) eq $m;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     unlink $f;
-  
+
     ok guidFromString(join '', 1..100) eq
        q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de);
-  
+
     ok guidFromMd5(stringMd5Sum(join('', 1..100))) eq
        q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de);
-  
+
     ok md5FromGuid(q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de)) eq
                         q(ef69caaaeea9c17120821a9eb6c7f1de);
-  
+
     ok stringMd5Sum(q(𝝰 𝝱 𝝲)) eq q(3c2b7c31b1011998bd7e1f66fb7c024d);
   }
-  
+
   if (1)
-   {ok arraySum   (1..10) ==  55;                                                 
-    ok arrayProduct(1..5) == 120;                                                 
-    is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];                             
-  
+   {ok arraySum   (1..10) ==  55;
+    ok arrayProduct(1..5) == 120;
+    is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];
+
 
 =head3 guidFromMd5($m)
 
@@ -8634,32 +8891,32 @@ B<Example:>
 
     my $s = join '', 1..100;
     my $m = q(ef69caaaeea9c17120821a9eb6c7f1de);
-  
+
     ok stringMd5Sum($s) eq $m;
-  
+
     my $f = writeFile(undef, $s);
     ok fileMd5Sum($f) eq $m;
     unlink $f;
-  
+
     ok guidFromString(join '', 1..100) eq
        q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de);
-  
-  
+
+
     ok guidFromMd5(stringMd5Sum(join('', 1..100))) eq  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
        q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de);
-  
+
     ok md5FromGuid(q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de)) eq
                         q(ef69caaaeea9c17120821a9eb6c7f1de);
-  
+
     ok stringMd5Sum(q(𝝰 𝝱 𝝲)) eq q(3c2b7c31b1011998bd7e1f66fb7c024d);
   }
-  
+
   if (1)
-   {ok arraySum   (1..10) ==  55;                                                 
-    ok arrayProduct(1..5) == 120;                                                 
-    is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];                             
-  
+   {ok arraySum   (1..10) ==  55;
+    ok arrayProduct(1..5) == 120;
+    is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];
+
 
 =head3 md5FromGuid($G)
 
@@ -8673,36 +8930,36 @@ B<Example:>
 
     my $s = join '', 1..100;
     my $m = q(ef69caaaeea9c17120821a9eb6c7f1de);
-  
+
     ok stringMd5Sum($s) eq $m;
-  
+
     my $f = writeFile(undef, $s);
     ok fileMd5Sum($f) eq $m;
     unlink $f;
-  
+
     ok guidFromString(join '', 1..100) eq
        q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de);
-  
+
     ok guidFromMd5(stringMd5Sum(join('', 1..100))) eq
        q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de);
-  
-  
+
+
     ok md5FromGuid(q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de)) eq  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
                         q(ef69caaaeea9c17120821a9eb6c7f1de);
-  
+
     ok stringMd5Sum(q(𝝰 𝝱 𝝲)) eq q(3c2b7c31b1011998bd7e1f66fb7c024d);
   }
-  
+
   if (1)
-   {ok arraySum   (1..10) ==  55;                                                 
-    ok arrayProduct(1..5) == 120;                                                 
-    is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];                             
-  
+   {ok arraySum   (1..10) ==  55;
+    ok arrayProduct(1..5) == 120;
+    is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];
+
 
 =head3 guidFromString($string)
 
-Create a guid representation of the L<MD5 sum|https://en.wikipedia.org/wiki/MD5> of the content of a string.
+Create a guid representation of the L<MD5|https://en.wikipedia.org/wiki/MD5> of the content of a string.
 
      Parameter  Description
   1  $string    String
@@ -8712,32 +8969,32 @@ B<Example:>
 
     my $s = join '', 1..100;
     my $m = q(ef69caaaeea9c17120821a9eb6c7f1de);
-  
+
     ok stringMd5Sum($s) eq $m;
-  
+
     my $f = writeFile(undef, $s);
     ok fileMd5Sum($f) eq $m;
     unlink $f;
-  
-  
+
+
     ok guidFromString(join '', 1..100) eq  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
        q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de);
-  
+
     ok guidFromMd5(stringMd5Sum(join('', 1..100))) eq
        q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de);
-  
+
     ok md5FromGuid(q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de)) eq
                         q(ef69caaaeea9c17120821a9eb6c7f1de);
-  
+
     ok stringMd5Sum(q(𝝰 𝝱 𝝲)) eq q(3c2b7c31b1011998bd7e1f66fb7c024d);
   }
-  
+
   if (1)
-   {ok arraySum   (1..10) ==  55;                                                 
-    ok arrayProduct(1..5) == 120;                                                 
-    is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];                             
-  
+   {ok arraySum   (1..10) ==  55;
+    ok arrayProduct(1..5) == 120;
+    is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];
+
 
 =head3 fileModTime($file)
 
@@ -8749,10 +9006,10 @@ Get the modified time of a B<$file> as seconds since the epoch.
 B<Example:>
 
 
-  
+
   ok fileModTime($0) =~ m(\A\d+\Z)s;                                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 fileOutOfDate($make, $target, @source)
 
@@ -8769,49 +9026,49 @@ B<Example:>
     my @Files = qw(a b c);
     my @files = (@Files, qw(d));
     writeFile($_, $_), sleep 1 for @Files;
-  
+
     my $a = '';
-  
+
     my @a = fileOutOfDate {$a .= $_} q(a), @files;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $a eq 'da';
     is_deeply [@a], [qw(d a)];
-  
+
     my $b = '';
-  
+
     my @b = fileOutOfDate {$b .= $_} q(b), @files;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $b eq 'db';
     is_deeply [@b], [qw(d b)];
-  
+
     my $c = '';
-  
+
     my @c = fileOutOfDate {$c .= $_} q(c), @files;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $c eq 'dc';
     is_deeply [@c], [qw(d c)];
-  
+
     my $d = '';
-  
+
     my @d = fileOutOfDate {$d .= $_} q(d), @files;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $d eq 'd';
     is_deeply [@d], [qw(d)];
-  
-  
+
+
     my @A = fileOutOfDate {} q(a), @Files;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     my @B = fileOutOfDate {} q(b), @Files;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     my @C = fileOutOfDate {} q(c), @Files;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply [@A], [qw(a)];
     is_deeply [@B], [qw(b)];
     is_deeply [@C], [];
     unlink for @Files;
-  
+
 
 =head3 firstFileThatExists(@files)
 
@@ -8823,16 +9080,16 @@ Returns the name of the first file from B<@files> that exists or B<undef> if non
 B<Example:>
 
 
-    my $d = temporaryFolder;                                                      
-  
-  
+    my $d = temporaryFolder;
+
+
     ok $d eq firstFileThatExists("$d/$d", $d);                                      # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 fileInWindowsFormat($file)
 
-Convert a unix B<$file> name to windows format
+Convert a unix B<$file> name to windows format.
 
      Parameter  Description
   1  $file      File
@@ -8840,12 +9097,12 @@ Convert a unix B<$file> name to windows format
 B<Example:>
 
 
-  if (1)                                                                          
-  
+  if (1)
+
    {ok fileInWindowsFormat(fpd(qw(/a b c d))) eq q(\a\b\c\d\\);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    }
-  
+
 
 =head2 Components
 
@@ -8865,7 +9122,7 @@ Create a file name from a list of  names. Identical to L<fpf|/fpf>.
 B<Example:>
 
 
-  
+
     is_deeply filePath   (qw(/aaa bbb ccc ddd.eee)) , prefferedFileName "/aaa/bbb/ccc/ddd.eee";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply filePathDir(qw(/aaa bbb ccc ddd))     , prefferedFileName "/aaa/bbb/ccc/ddd/";
@@ -8873,11 +9130,11 @@ B<Example:>
     is_deeply filePathDir('')                       , prefferedFileName "";
     is_deeply filePathExt(qw(aaa xxx))              , prefferedFileName "aaa.xxx";
     is_deeply filePathExt(qw(aaa bbb xxx))          , prefferedFileName "aaa/bbb.xxx";
-  
+
     is_deeply fpd        (qw(/aaa bbb ccc ddd))     , prefferedFileName "/aaa/bbb/ccc/ddd/";
     is_deeply fpf        (qw(/aaa bbb ccc ddd.eee)) , prefferedFileName "/aaa/bbb/ccc/ddd.eee";
     is_deeply fpe        (qw(aaa bbb xxx))          , prefferedFileName "aaa/bbb.xxx";
-  
+
 
 B<fpf> is a synonym for L<filePath|/filePath>.
 
@@ -8893,22 +9150,22 @@ B<Example:>
 
 
     is_deeply filePath   (qw(/aaa bbb ccc ddd.eee)) , prefferedFileName "/aaa/bbb/ccc/ddd.eee";
-  
+
     is_deeply filePathDir(qw(/aaa bbb ccc ddd))     , prefferedFileName "/aaa/bbb/ccc/ddd/";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply filePathDir('', qw(aaa))              , prefferedFileName "aaa/";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply filePathDir('')                       , prefferedFileName "";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply filePathExt(qw(aaa xxx))              , prefferedFileName "aaa.xxx";
     is_deeply filePathExt(qw(aaa bbb xxx))          , prefferedFileName "aaa/bbb.xxx";
-  
+
     is_deeply fpd        (qw(/aaa bbb ccc ddd))     , prefferedFileName "/aaa/bbb/ccc/ddd/";
     is_deeply fpf        (qw(/aaa bbb ccc ddd.eee)) , prefferedFileName "/aaa/bbb/ccc/ddd.eee";
     is_deeply fpe        (qw(aaa bbb xxx))          , prefferedFileName "aaa/bbb.xxx";
-  
+
 
 B<fpd> is a synonym for L<filePathDir|/filePathDir>.
 
@@ -8927,17 +9184,17 @@ B<Example:>
     is_deeply filePathDir(qw(/aaa bbb ccc ddd))     , prefferedFileName "/aaa/bbb/ccc/ddd/";
     is_deeply filePathDir('', qw(aaa))              , prefferedFileName "aaa/";
     is_deeply filePathDir('')                       , prefferedFileName "";
-  
+
     is_deeply filePathExt(qw(aaa xxx))              , prefferedFileName "aaa.xxx";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply filePathExt(qw(aaa bbb xxx))          , prefferedFileName "aaa/bbb.xxx";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply fpd        (qw(/aaa bbb ccc ddd))     , prefferedFileName "/aaa/bbb/ccc/ddd/";
     is_deeply fpf        (qw(/aaa bbb ccc ddd.eee)) , prefferedFileName "/aaa/bbb/ccc/ddd.eee";
     is_deeply fpe        (qw(aaa bbb xxx))          , prefferedFileName "aaa/bbb.xxx";
-  
+
 
 B<fpe> is a synonym for L<filePathExt|/filePathExt>.
 
@@ -8956,10 +9213,10 @@ Get the path from a file name.
 B<Example:>
 
 
-  
+
   ok fp (prefferedFileName q(a/b/c.d.e))  eq prefferedFileName q(a/b/);                               # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 fpn($file)
 
@@ -8971,10 +9228,10 @@ Remove the extension from a file name.
 B<Example:>
 
 
-  
+
   ok fpn(prefferedFileName q(a/b/c.d.e))  eq prefferedFileName q(a/b/c.d);                            # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 fn($file)
 
@@ -8986,10 +9243,10 @@ Remove the path and extension from a file name.
 B<Example:>
 
 
-  
+
   ok fn (prefferedFileName q(a/b/c.d.e))  eq prefferedFileName q(c.d);                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 fne($file)
 
@@ -9001,10 +9258,10 @@ Remove the path from a file name.
 B<Example:>
 
 
-  
+
   ok fne(prefferedFileName q(a/b/c.d.e))  eq prefferedFileName q(c.d.e);                              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 fe($file)
 
@@ -9016,10 +9273,10 @@ Get the extension of a file name.
 B<Example:>
 
 
-  
+
   ok fe (prefferedFileName q(a/b/c.d.e))  eq prefferedFileName q(e);                                  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 checkFile($file)
 
@@ -9031,22 +9288,22 @@ Return the name of the specified file if it exists, else confess the maximum ext
 B<Example:>
 
 
-    my $d = filePath   (my @d = qw(a b c d));                                      
-  
-    my $f = filePathExt(qw(a b c d e x));                                         
-  
-    my $F = filePathExt(qw(a b c e d));                                           
-  
-    createEmptyFile($f);                                                          
-  
-  
+    my $d = filePath   (my @d = qw(a b c d));
+
+    my $f = filePathExt(qw(a b c d e x));
+
+    my $F = filePathExt(qw(a b c e d));
+
+    createEmptyFile($f);
+
+
     ok  eval{checkFile($d)};                                                        # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
     ok  eval{checkFile($f)};                                                        # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 quoteFile($file)
 
@@ -9058,10 +9315,10 @@ Quote a file name.
 B<Example:>
 
 
-  
+
   is_deeply quoteFile(fpe(qw(a "b" c))), onWindows ? q("a\\\"b\".c") : q("a/\"b\".c");   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 removeFilePrefix($prefix, @files)
 
@@ -9074,14 +9331,14 @@ Removes a file B<$prefix> from an array of B<@files>.
 B<Example:>
 
 
-  
+
   is_deeply [qw(a b)], [&removeFilePrefix(qw(a/ a/a a/b))];                         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   is_deeply [qw(b)],   [&removeFilePrefix("a/", "a/b")];                            # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 swapFilePrefix($file, $known, $new)
 
@@ -9095,10 +9352,10 @@ Swaps the start of a B<$file> name from a B<$known> name to a B<$new> one if the
 B<Example:>
 
 
-  
+
   ok swapFilePrefix(q(/aaa/bbb.txt), q(/aaa/), q(/AAA/)) eq q(/AAA/bbb.txt);        # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 setFileExtension($file, $extension)
 
@@ -9111,18 +9368,18 @@ Given a B<$file>, change its extension to B<$extension>. Removes the extension i
 B<Example:>
 
 
-  
+
   ok setFileExtension(q(.c),     q(d)) eq q(.d);                                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   ok setFileExtension(q(b.c),    q(d)) eq q(b.d);                                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   ok setFileExtension(q(/a/b.c), q(d)) eq q(/a/b.d);                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 swapFolderPrefix($file, $known, $new)
 
@@ -9139,13 +9396,13 @@ B<Example:>
     my $g = fpd(qw(a b c d));
     my $h = fpd(qw(a b cc dd));
     my $i = fpe($g, qw(aaa txt));
-  
-  
+
+
     my $j = swapFolderPrefix($i, $g, $h);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $j =~ m(a/b/cc/dd/)s     unless onWindows;
     ok $j =~ m(a\\b\\cc\\dd\\)s if     onWindows;
-  
+
 
 =head4 fullyQualifiedFile($file, $prefix)
 
@@ -9158,22 +9415,22 @@ Check whether a B<$file> name is fully qualified or not and, optionally, whether
 B<Example:>
 
 
-  
+
   ok  fullyQualifiedFile(q(/a/b/c.d));                                              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   ok  fullyQualifiedFile(q(/a/b/c.d), q(/a/b));                                     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   ok !fullyQualifiedFile(q(/a/b/c.d), q(/a/c));                                     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   ok !fullyQualifiedFile(q(c.d));                                                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 fullyQualifyFile($file)
 
@@ -9185,12 +9442,12 @@ Return the fully qualified name of a file.
 B<Example:>
 
 
-  if (0)                                                                          
-  
+  if (0)
+
    {ok fullyQualifyFile(q(perl/cpan)) eq q(/home/phil/perl/cpan/);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    }
-  
+
 
 =head4 removeDuplicatePrefixes($file)
 
@@ -9202,22 +9459,22 @@ Remove duplicated leading directory names from a file name.
 B<Example:>
 
 
-  
+
   ok q(a/b.c) eq removeDuplicatePrefixes("a/a/b.c");                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   ok q(a/b.c) eq removeDuplicatePrefixes("a/b.c");                                  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   ok q(b.c) eq removeDuplicatePrefixes("b.c");                                      # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head4 containingFolderName($file)
 
-The name of a folder containing a file
+The name of a folder containing a file.
 
      Parameter  Description
   1  $file      File name
@@ -9225,10 +9482,10 @@ The name of a folder containing a file
 B<Example:>
 
 
-  
+
   ok containingFolderName(q(/a/b/c.d)) eq q(b);                                     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 Position
 
@@ -9242,10 +9499,10 @@ Get the current working directory.
 B<Example:>
 
 
-  
+
     currentDirectory;                                                               # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 currentDirectoryAbove()
 
@@ -9255,14 +9512,14 @@ Get the path to the folder above the current working folder.
 B<Example:>
 
 
-  
+
     currentDirectoryAbove;                                                          # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 parseFileName($file)
 
-Parse a file name into (path, name, extension) considering .. to be always part of the path and using B<undef> to mark missing components.  This differs from (fp, fn, fe) which return q() for missing components and do not interpret . or .. as anything special
+Parse a file name into (path, name, extension) considering .. to be always part of the path and using B<undef> to mark missing components.  This differs from (fp, fn, fe) which return q() for missing components and do not interpret . or .. as anything special.
 
      Parameter  Description
   1  $file      File name to parse
@@ -9270,45 +9527,45 @@ Parse a file name into (path, name, extension) considering .. to be always part 
 B<Example:>
 
 
-  if (1)                                                                          
-  
+  if (1)
+
    {is_deeply [parseFileName "/home/phil/test.data"], ["/home/phil/", "test", "data"];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "/home/phil/test"],      ["/home/phil/", "test"];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "phil/test.data"],       ["phil/",       "test", "data"];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "phil/test"],            ["phil/",       "test"];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "test.data"],            [undef,         "test", "data"];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "phil/"],                [qw(phil/)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "/phil"],                [qw(/ phil)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "/"],                    [qw(/)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "/var/www/html/translations/"], [qw(/var/www/html/translations/)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "a.b/c.d.e"],            [qw(a.b/ c.d e)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "./a.b"],                [qw(./ a b)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseFileName "./../../a.b"],          [qw(./../../ a b)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    }
-  
+
 
 =head3 fullFileName()
 
@@ -9318,10 +9575,10 @@ Full name of a file.
 B<Example:>
 
 
-  
+
     fullFileName(fpe(qw(a txt)));                                                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 relFromAbsAgainstAbs($a, $b)
 
@@ -9334,14 +9591,14 @@ Relative file from one absolute file B<$a> against another B<$b>.
 B<Example:>
 
 
-  
+
   ok "bbb.pl"                 eq relFromAbsAgainstAbs("/home/la/perl/bbb.pl", "/home/la/perl/aaa.pl");    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   ok "../perl/bbb.pl"         eq relFromAbsAgainstAbs("/home/la/perl/bbb.pl", "/home/la/java/aaa.jv");    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 absFromAbsPlusRel($a, $r)
 
@@ -9354,14 +9611,14 @@ Absolute file from an absolute file B<$a> plus a relative file B<$r>. In the eve
 B<Example:>
 
 
-  
+
   ok "/home/la/perl/aaa.pl"   eq absFromAbsPlusRel("/home/la/perl/bbb",      "aaa.pl");                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   ok "/home/la/perl/aaa.pl"   eq absFromAbsPlusRel("/home/il/perl/bbb.pl",   "../../la/perl/aaa.pl");      # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 absFile($file)
 
@@ -9373,10 +9630,10 @@ Return the name of the given file if it a fully qualified file name else returns
 B<Example:>
 
 
-  
+
   ok "/aaa/"                  eq absFile(qw(/aaa/));                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 sumAbsAndRel(@files)
 
@@ -9388,10 +9645,10 @@ Combine zero or more absolute and relative names of B<@files> starting at the cu
 B<Example:>
 
 
-  
+
   ok "/aaa/bbb/ccc/ddd.txt"   eq sumAbsAndRel(qw(/aaa/AAA/ ../bbb/bbb/BBB/ ../../ccc/ddd.txt));   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 Temporary
 
@@ -9416,22 +9673,22 @@ B<Example:>
     ok -d $d;
     ok -d $D;
     rmdir $_ for $d, $D;
-  
+
     my $e = temporaryFolder;                                                      # Same as temporyDirectory
     ok -d $e;
     clearFolder($e, 2);
-  
-  
+
+
     my $t = temporaryFile;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok  -f $t;
     unlink $t;
     ok !-f $t;
-  
+
     if (0)
      {makePathRemote($e);                                                         # Make a path on the remote system
      }
-  
+
 
 =head3 temporaryFolder()
 
@@ -9441,39 +9698,39 @@ Create a new, empty, temporary folder.
 B<Example:>
 
 
-  
+
     my $D = temporaryFolder;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok  -d $D;
-  
+
     my $d = fpd($D, q(ddd));
     ok !-d $d;
-  
+
     my @f = map {createEmptyFile(fpe($d, $_, qw(txt)))} qw(a b c);
     is_deeply [sort map {fne $_} findFiles($d, qr(txt\Z))], [qw(a.txt b.txt c.txt)];
-  
+
     my @D = findDirs($D);
     my @e = ($D, $d);
     my @E = sort @e;
     is_deeply [@D], [@E];
-  
+
     is_deeply [sort map {fne $_} searchDirectoryTreesForMatchingFiles($d)],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     is_deeply [sort map {fne $_} fileList(prefferedFileName "$d/*.txt")],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     ok -e $_ for @f;
-  
+
     is_deeply scalar(searchDirectoryTreeForSubFolders $D), 2;
-  
+
     my @g = fileList(qq($D/*/*.txt));
     ok @g == 3;
-  
+
     clearFolder($D, 5);
     ok onWindows ? 1 : !-e $_ for @f;
     ok onWindows ? 1 : !-d $D;
-  
+
     my $d = fpd(my $D = temporaryDirectory, qw(a));
     my $f = fpe($d, qw(bbb txt));
     ok !-d $d;
@@ -9485,22 +9742,22 @@ B<Example:>
     ok -d $d;
     ok -d $D;
     rmdir $_ for $d, $D;
-  
-  
+
+
     my $e = temporaryFolder;                                                      # Same as temporyDirectory  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok -d $e;
     clearFolder($e, 2);
-  
+
     my $t = temporaryFile;
     ok  -f $t;
     unlink $t;
     ok !-f $t;
-  
+
     if (0)
      {makePathRemote($e);                                                         # Make a path on the remote system
      }
-  
+
 
 B<temporaryDirectory> is a synonym for L<temporaryFolder|/temporaryFolder>.
 
@@ -9522,37 +9779,37 @@ B<Example:>
 
     my $D = temporaryFolder;
     ok  -d $D;
-  
+
     my $d = fpd($D, q(ddd));
     ok !-d $d;
-  
+
     my @f = map {createEmptyFile(fpe($d, $_, qw(txt)))} qw(a b c);
-  
+
     is_deeply [sort map {fne $_} findFiles($d, qr(txt\Z))], [qw(a.txt b.txt c.txt)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     my @D = findDirs($D);
     my @e = ($D, $d);
     my @E = sort @e;
     is_deeply [@D], [@E];
-  
+
     is_deeply [sort map {fne $_} searchDirectoryTreesForMatchingFiles($d)],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     is_deeply [sort map {fne $_} fileList(prefferedFileName "$d/*.txt")],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     ok -e $_ for @f;
-  
+
     is_deeply scalar(searchDirectoryTreeForSubFolders $D), 2;
-  
+
     my @g = fileList(qq($D/*/*.txt));
     ok @g == 3;
-  
+
     clearFolder($D, 5);
     ok onWindows ? 1 : !-e $_ for @f;
     ok onWindows ? 1 : !-d $D;
-  
+
 
 =head3 findDirs($folder, $filter)
 
@@ -9567,37 +9824,37 @@ B<Example:>
 
     my $D = temporaryFolder;
     ok  -d $D;
-  
+
     my $d = fpd($D, q(ddd));
     ok !-d $d;
-  
+
     my @f = map {createEmptyFile(fpe($d, $_, qw(txt)))} qw(a b c);
     is_deeply [sort map {fne $_} findFiles($d, qr(txt\Z))], [qw(a.txt b.txt c.txt)];
-  
-  
+
+
     my @D = findDirs($D);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my @e = ($D, $d);
     my @E = sort @e;
     is_deeply [@D], [@E];
-  
+
     is_deeply [sort map {fne $_} searchDirectoryTreesForMatchingFiles($d)],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     is_deeply [sort map {fne $_} fileList(prefferedFileName "$d/*.txt")],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     ok -e $_ for @f;
-  
+
     is_deeply scalar(searchDirectoryTreeForSubFolders $D), 2;
-  
+
     my @g = fileList(qq($D/*/*.txt));
     ok @g == 3;
-  
+
     clearFolder($D, 5);
     ok onWindows ? 1 : !-e $_ for @f;
     ok onWindows ? 1 : !-d $D;
-  
+
 
 =head3 fileList($pattern)
 
@@ -9611,39 +9868,39 @@ B<Example:>
 
     my $D = temporaryFolder;
     ok  -d $D;
-  
+
     my $d = fpd($D, q(ddd));
     ok !-d $d;
-  
+
     my @f = map {createEmptyFile(fpe($d, $_, qw(txt)))} qw(a b c);
     is_deeply [sort map {fne $_} findFiles($d, qr(txt\Z))], [qw(a.txt b.txt c.txt)];
-  
+
     my @D = findDirs($D);
     my @e = ($D, $d);
     my @E = sort @e;
     is_deeply [@D], [@E];
-  
+
     is_deeply [sort map {fne $_} searchDirectoryTreesForMatchingFiles($d)],
               ["a.txt", "b.txt", "c.txt"];
-  
-  
+
+
     is_deeply [sort map {fne $_} fileList(prefferedFileName "$d/*.txt")],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
               ["a.txt", "b.txt", "c.txt"];
-  
+
     ok -e $_ for @f;
-  
+
     is_deeply scalar(searchDirectoryTreeForSubFolders $D), 2;
-  
-  
+
+
     my @g = fileList(qq($D/*/*.txt));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok @g == 3;
-  
+
     clearFolder($D, 5);
     ok onWindows ? 1 : !-e $_ for @f;
     ok onWindows ? 1 : !-d $D;
-  
+
 
 =head3 searchDirectoryTreesForMatchingFiles(@FoldersandExtensions)
 
@@ -9657,41 +9914,41 @@ B<Example:>
 
     my $D = temporaryFolder;
     ok  -d $D;
-  
+
     my $d = fpd($D, q(ddd));
     ok !-d $d;
-  
+
     my @f = map {createEmptyFile(fpe($d, $_, qw(txt)))} qw(a b c);
     is_deeply [sort map {fne $_} findFiles($d, qr(txt\Z))], [qw(a.txt b.txt c.txt)];
-  
+
     my @D = findDirs($D);
     my @e = ($D, $d);
     my @E = sort @e;
     is_deeply [@D], [@E];
-  
-  
+
+
     is_deeply [sort map {fne $_} searchDirectoryTreesForMatchingFiles($d)],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
               ["a.txt", "b.txt", "c.txt"];
-  
+
     is_deeply [sort map {fne $_} fileList(prefferedFileName "$d/*.txt")],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     ok -e $_ for @f;
-  
+
     is_deeply scalar(searchDirectoryTreeForSubFolders $D), 2;
-  
+
     my @g = fileList(qq($D/*/*.txt));
     ok @g == 3;
-  
+
     clearFolder($D, 5);
     ok onWindows ? 1 : !-e $_ for @f;
     ok onWindows ? 1 : !-d $D;
-  
+
 
 =head3 searchDirectoryTreeForSubFolders($folder)
 
-Search the specified directory under the specified folder for sub folders
+Search the specified directory under the specified folder for sub folders.
 
      Parameter  Description
   1  $folder    The folder at which to start the search
@@ -9701,37 +9958,37 @@ B<Example:>
 
     my $D = temporaryFolder;
     ok  -d $D;
-  
+
     my $d = fpd($D, q(ddd));
     ok !-d $d;
-  
+
     my @f = map {createEmptyFile(fpe($d, $_, qw(txt)))} qw(a b c);
     is_deeply [sort map {fne $_} findFiles($d, qr(txt\Z))], [qw(a.txt b.txt c.txt)];
-  
+
     my @D = findDirs($D);
     my @e = ($D, $d);
     my @E = sort @e;
     is_deeply [@D], [@E];
-  
+
     is_deeply [sort map {fne $_} searchDirectoryTreesForMatchingFiles($d)],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     is_deeply [sort map {fne $_} fileList(prefferedFileName "$d/*.txt")],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     ok -e $_ for @f;
-  
-  
+
+
     is_deeply scalar(searchDirectoryTreeForSubFolders $D), 2;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     my @g = fileList(qq($D/*/*.txt));
     ok @g == 3;
-  
+
     clearFolder($D, 5);
     ok onWindows ? 1 : !-e $_ for @f;
     ok onWindows ? 1 : !-d $D;
-  
+
 
 =head3 hashifyFolderStructure(@files)
 
@@ -9743,7 +10000,7 @@ Hashify a list of file names to get the corresponding folder structure.
 B<Example:>
 
 
-  
+
     is_deeply hashifyFolderStructure(qw(/a/a/a /a/a/b /a/b/a /a/b/b)),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      {"" => {a => {a => { a => "/a/a/a", b => "/a/a/b" },
@@ -9751,7 +10008,7 @@ B<Example:>
                   },
             },
      };
-  
+
 
 =head3 countFileExtensions(@folders)
 
@@ -9763,10 +10020,10 @@ Return a hash which counts the file extensions in and below the folders in the s
 B<Example:>
 
 
-  
+
     countFileExtensions(q(/home/phil/perl/));                                       # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 countFileTypes($maximumNumberOfProcesses, @folders)
 
@@ -9779,10 +10036,10 @@ Return a hash which counts, in parallel with a maximum number of processes: B<$m
 B<Example:>
 
 
-  
+
     countFileTypes(4, q(/home/phil/perl/));                                         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 matchPath($file)
 
@@ -9794,12 +10051,12 @@ Return the deepest folder that exists along a given file name path.
 B<Example:>
 
 
-    my $d = filePath   (my @d = qw(a b c d));                                      
-  
-  
+    my $d = filePath   (my @d = qw(a b c d));
+
+
     ok matchPath($d) eq $d;                                                         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 findFileWithExtension($file, @ext)
 
@@ -9812,14 +10069,14 @@ Find the first file that exists with a path and name of B<$file> and an extensio
 B<Example:>
 
 
-    my $f = createEmptyFile(fpe(my $d = temporaryFolder, qw(a jpg)));             
-  
-  
+    my $f = createEmptyFile(fpe(my $d = temporaryFolder, qw(a jpg)));
+
+
     my $F = findFileWithExtension(fpf($d, q(a)), qw(txt data jpg));                 # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-    ok $F eq "jpg";                                                               
-  
+
+    ok $F eq "jpg";
+
 
 =head3 clearFolder($folder, $limitCount, $noMsg)
 
@@ -9835,37 +10092,37 @@ B<Example:>
 
     my $D = temporaryFolder;
     ok  -d $D;
-  
+
     my $d = fpd($D, q(ddd));
     ok !-d $d;
-  
+
     my @f = map {createEmptyFile(fpe($d, $_, qw(txt)))} qw(a b c);
     is_deeply [sort map {fne $_} findFiles($d, qr(txt\Z))], [qw(a.txt b.txt c.txt)];
-  
+
     my @D = findDirs($D);
     my @e = ($D, $d);
     my @E = sort @e;
     is_deeply [@D], [@E];
-  
+
     is_deeply [sort map {fne $_} searchDirectoryTreesForMatchingFiles($d)],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     is_deeply [sort map {fne $_} fileList(prefferedFileName "$d/*.txt")],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     ok -e $_ for @f;
-  
+
     is_deeply scalar(searchDirectoryTreeForSubFolders $D), 2;
-  
+
     my @g = fileList(qq($D/*/*.txt));
     ok @g == 3;
-  
-  
+
+
     clearFolder($D, 5);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok onWindows ? 1 : !-e $_ for @f;
     ok onWindows ? 1 : !-d $D;
-  
+
 
 =head2 Read and write files
 
@@ -9882,32 +10139,32 @@ B<Example:>
 
 
     my $f = writeFile(undef,  "aaa");
-  
+
     is_deeply [readFile $f], ["aaa"];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     appendFile($f, "bbb");
-  
+
     is_deeply [readFile $f], ["aaabbb"];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     my $F = writeTempFile(qw(aaa bbb));
-  
+
     is_deeply [readFile $F], ["aaa
 ", "bbb
 "];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     eval {writeFile($f,  q(ccc))};
     ok $@ =~ m(File already exists:)i;
-  
+
     overWriteFile($F,    q(ccc));
-  
+
     ok   readFile($F) eq q(ccc);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     unlink $f, $F;
-  
+
 
 =head3 readStdIn()
 
@@ -9919,11 +10176,11 @@ B<Example:>
 
     my $d = qq(aaaa);
     open(STDIN, "<", writeTempFile($d));
-  
+
     ok qq($d
 ) eq readStdIn;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 readFileFromRemote($file, $ip)
 
@@ -9936,14 +10193,14 @@ Copy and read a B<$file> from the remote machine whose ip address is specified b
 B<Example:>
 
 
-  
+
     my $f = writeFileToRemote(undef, q(aaaa));
     unlink $f;
-  
+
     ok readFileFromRemote($f) eq q(aaaa);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     unlink $f;
-  
+
 
 =head3 evalFile($file)
 
@@ -9957,19 +10214,19 @@ B<Example:>
 
     my $d = [qw(aaa bbb ccc), [{aaa=>'AAA', bbb=>'BBB'}]];
     my $f = dumpFile(undef, $d);
-  
+
     is_deeply evalFile($f), $d;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply evalFile(my $F = dumpTempFile($d)), $d;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     unlink $f, $F;
-  
+
     my $j = dumpFileAsJson(undef, $d);
     is_deeply evalFileAsJson($j), $d;
     is_deeply evalFileAsJson(my $J = dumpTempFileAsJson($d)), $d;
     unlink $j, $J;
-  
+
 
 =head3 evalFileAsJson($file)
 
@@ -9986,16 +10243,16 @@ B<Example:>
     is_deeply evalFile($f), $d;
     is_deeply evalFile(my $F = dumpTempFile($d)), $d;
     unlink $f, $F;
-  
+
     my $j = dumpFileAsJson(undef, $d);
-  
+
     is_deeply evalFileAsJson($j), $d;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply evalFileAsJson(my $J = dumpTempFileAsJson($d)), $d;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     unlink $j, $J;
-  
+
 
 =head3 evalGZipFile($file)
 
@@ -10010,12 +10267,12 @@ B<Example:>
     my $d = [1, 2, 3=>{a=>4, b=>5}];
     my $file = dumpGZipFile(q(zzz.zip), $d);
     ok -e $file;
-  
+
     my $D = evalGZipFile($file);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply $d, $D;
     unlink $file;
-  
+
 
 =head3 retrieveFile($file)
 
@@ -10028,12 +10285,12 @@ B<Example:>
 
 
     my $f = storeFile(undef, my $d = [qw(aaa bbb ccc)]);
-  
+
     my $s = retrieveFile($f);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply $s, $d;
     unlink $f;
-  
+
 
 =head3 readBinaryFile($file)
 
@@ -10045,14 +10302,14 @@ Read a binary file on the local machine.
 B<Example:>
 
 
-    my $f = writeBinaryFile(undef, 0xff x 8);                                      
-  
-  
+    my $f = writeBinaryFile(undef, 0xff x 8);
+
+
     my $s = readBinaryFile($f);                                                      # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-    ok $s eq 0xff x 8;                                                             
-  
+
+    ok $s eq 0xff x 8;
+
 
 =head3 readGZipFile($file)
 
@@ -10067,13 +10324,13 @@ B<Example:>
     my $s = '𝝰'x1e3;
     my $file = writeGZipFile(q(zzz.zip), $s);
     ok -e $file;
-  
+
     my $S = readGZipFile($file);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $s eq $S;
     ok length($s) == length($S);
     unlink $file;
-  
+
 
 =head3 makePath($file)
 
@@ -10092,26 +10349,26 @@ B<Example:>
     my $r = $@;
     my $q = quotemeta($D);
     ok nws($r) =~ m(Can only find.+?: $q)s;
-  
+
     makePath($f);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok -d $d;
     ok -d $D;
     rmdir $_ for $d, $D;
-  
+
     my $e = temporaryFolder;                                                      # Same as temporyDirectory
     ok -d $e;
     clearFolder($e, 2);
-  
+
     my $t = temporaryFile;
     ok  -f $t;
     unlink $t;
     ok !-f $t;
-  
+
     if (0)
      {makePathRemote($e);                                                         # Make a path on the remote system
      }
-  
+
 
 =head3 makePathRemote($file, $ip)
 
@@ -10135,22 +10392,22 @@ B<Example:>
     ok -d $d;
     ok -d $D;
     rmdir $_ for $d, $D;
-  
+
     my $e = temporaryFolder;                                                      # Same as temporyDirectory
     ok -d $e;
     clearFolder($e, 2);
-  
+
     my $t = temporaryFile;
     ok  -f $t;
     unlink $t;
     ok !-f $t;
-  
+
     if (0)
-  
+
      {makePathRemote($e);                                                         # Make a path on the remote system  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      }
-  
+
 
 =head3 overWriteFile($file, $string)
 
@@ -10165,25 +10422,25 @@ B<Example:>
 
     my $f = writeFile(undef,  "aaa");
     is_deeply [readFile $f], ["aaa"];
-  
+
     appendFile($f, "bbb");
     is_deeply [readFile $f], ["aaabbb"];
-  
+
     my $F = writeTempFile(qw(aaa bbb));
     is_deeply [readFile $F], ["aaa
 ", "bbb
 "];
-  
+
     eval {writeFile($f,  q(ccc))};
     ok $@ =~ m(File already exists:)i;
-  
-  
+
+
     overWriteFile($F,    q(ccc));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok   readFile($F) eq q(ccc);
-  
+
     unlink $f, $F;
-  
+
 
 B<owf> is a synonym for L<overWriteFile|/overWriteFile>.
 
@@ -10199,29 +10456,29 @@ Write to a new B<$file>, after creating a path to the $file with L<makePath> if 
 B<Example:>
 
 
-  
+
     my $f = writeFile(undef,  "aaa");  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply [readFile $f], ["aaa"];
-  
+
     appendFile($f, "bbb");
     is_deeply [readFile $f], ["aaabbb"];
-  
+
     my $F = writeTempFile(qw(aaa bbb));
     is_deeply [readFile $F], ["aaa
 ", "bbb
 "];
-  
-  
+
+
     eval {writeFile($f,  q(ccc))};  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $@ =~ m(File already exists:)i;
-  
+
     overWriteFile($F,    q(ccc));
     ok   readFile($F) eq q(ccc);
-  
+
     unlink $f, $F;
-  
+
 
 =head3 writeTempFile(@strings)
 
@@ -10235,25 +10492,25 @@ B<Example:>
 
     my $f = writeFile(undef,  "aaa");
     is_deeply [readFile $f], ["aaa"];
-  
+
     appendFile($f, "bbb");
     is_deeply [readFile $f], ["aaabbb"];
-  
-  
+
+
     my $F = writeTempFile(qw(aaa bbb));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply [readFile $F], ["aaa
 ", "bbb
 "];
-  
+
     eval {writeFile($f,  q(ccc))};
     ok $@ =~ m(File already exists:)i;
-  
+
     overWriteFile($F,    q(ccc));
     ok   readFile($F) eq q(ccc);
-  
+
     unlink $f, $F;
-  
+
 
 =head3 writeFileToRemote($file, $string, $ip)
 
@@ -10267,14 +10524,14 @@ Write to a new B<$file>, after creating a path to the file with L<makePath> if n
 B<Example:>
 
 
-  
-  
+
+
     my $f = writeFileToRemote(undef, q(aaaa));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     unlink $f;
     ok readFileFromRemote($f) eq q(aaaa);
     unlink $f;
-  
+
 
 =head3 overWriteBinaryFile($file, $string)
 
@@ -10287,36 +10544,36 @@ Write to B<$file>, after creating a path to the file with L<makePath> if necessa
 B<Example:>
 
 
-  if (1)                                                                            
-   {vec(my $a, 0, 8) = 254;
-    vec(my $b, 0, 8) = 255;
+  if (1)
+   {vec(my $a = '', 0, 8) = 254;
+    vec(my $b = '', 0, 8) = 255;
     ok dump($a) eq dump("FE");
     ok dump($b) eq dump("FF");
     ok length($a) == 1;
     ok length($b) == 1;
-  
+
     my $s = $a.$a.$b.$b;
     ok length($s) == 4;
-  
+
     my $f = eval {writeFile(undef, $s)};
     ok fileSize($f) == 8;
-  
+
     eval {writeBinaryFile($f, $s)};
     ok $@ =~ m(Binary file already exists:)s;
-  
-  
+
+
     eval {overWriteBinaryFile($f, $s)};  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok !$@;
     ok fileSize($f) == 4;
-  
+
     ok $s eq eval {readBinaryFile($f)};
-  
+
     copyBinaryFile($f, my $F = temporaryFile);
     ok $s eq readBinaryFile($F);
     unlink $f, $F;
    }
-  
+
 
 =head3 writeBinaryFile($file, $string)
 
@@ -10329,44 +10586,44 @@ Write to a new B<$file>, after creating a path to the file with L<makePath> if n
 B<Example:>
 
 
-  
+
     my $f = writeBinaryFile(undef, 0xff x 8);                                        # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-    my $s = readBinaryFile($f);                                                    
-  
-    ok $s eq 0xff x 8;                                                             
-  
-  if (1)                                                                            
-   {vec(my $a, 0, 8) = 254;
-    vec(my $b, 0, 8) = 255;
+
+    my $s = readBinaryFile($f);
+
+    ok $s eq 0xff x 8;
+
+  if (1)
+   {vec(my $a = '', 0, 8) = 254;
+    vec(my $b = '', 0, 8) = 255;
     ok dump($a) eq dump("FE");
     ok dump($b) eq dump("FF");
     ok length($a) == 1;
     ok length($b) == 1;
-  
+
     my $s = $a.$a.$b.$b;
     ok length($s) == 4;
-  
+
     my $f = eval {writeFile(undef, $s)};
     ok fileSize($f) == 8;
-  
-  
+
+
     eval {writeBinaryFile($f, $s)};  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $@ =~ m(Binary file already exists:)s;
-  
+
     eval {overWriteBinaryFile($f, $s)};
     ok !$@;
     ok fileSize($f) == 4;
-  
+
     ok $s eq eval {readBinaryFile($f)};
-  
+
     copyBinaryFile($f, my $F = temporaryFile);
     ok $s eq readBinaryFile($F);
     unlink $f, $F;
    }
-  
+
 
 =head3 dumpFile($file, $structure)
 
@@ -10380,22 +10637,22 @@ B<Example:>
 
 
     my $d = [qw(aaa bbb ccc), [{aaa=>'AAA', bbb=>'BBB'}]];
-  
+
     my $f = dumpFile(undef, $d);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply evalFile($f), $d;
     is_deeply evalFile(my $F = dumpTempFile($d)), $d;
     unlink $f, $F;
-  
+
     my $j = dumpFileAsJson(undef, $d);
     is_deeply evalFileAsJson($j), $d;
     is_deeply evalFileAsJson(my $J = dumpTempFileAsJson($d)), $d;
     unlink $j, $J;
-  
+
 
 =head3 dumpTempFile($structure)
 
-Dump a data structure to a temporary file and return the name of the file created
+Dump a data structure to a temporary file and return the name of the file created.
 
      Parameter   Description
   1  $structure  Data structure to write
@@ -10406,16 +10663,16 @@ B<Example:>
     my $d = [qw(aaa bbb ccc), [{aaa=>'AAA', bbb=>'BBB'}]];
     my $f = dumpFile(undef, $d);
     is_deeply evalFile($f), $d;
-  
+
     is_deeply evalFile(my $F = dumpTempFile($d)), $d;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     unlink $f, $F;
-  
+
     my $j = dumpFileAsJson(undef, $d);
     is_deeply evalFileAsJson($j), $d;
     is_deeply evalFileAsJson(my $J = dumpTempFileAsJson($d)), $d;
     unlink $j, $J;
-  
+
 
 =head3 dumpFileAsJson($file, $structure)
 
@@ -10433,14 +10690,14 @@ B<Example:>
     is_deeply evalFile($f), $d;
     is_deeply evalFile(my $F = dumpTempFile($d)), $d;
     unlink $f, $F;
-  
-  
+
+
     my $j = dumpFileAsJson(undef, $d);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply evalFileAsJson($j), $d;
     is_deeply evalFileAsJson(my $J = dumpTempFileAsJson($d)), $d;
     unlink $j, $J;
-  
+
 
 =head3 dumpTempFileAsJson($structure)
 
@@ -10457,14 +10714,14 @@ B<Example:>
     is_deeply evalFile($f), $d;
     is_deeply evalFile(my $F = dumpTempFile($d)), $d;
     unlink $f, $F;
-  
+
     my $j = dumpFileAsJson(undef, $d);
     is_deeply evalFileAsJson($j), $d;
-  
+
     is_deeply evalFileAsJson(my $J = dumpTempFileAsJson($d)), $d;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     unlink $j, $J;
-  
+
 
 =head3 storeFile($file, $structure)
 
@@ -10477,13 +10734,13 @@ Store into a B<$file>, after creating a path to the file with L<makePath> if nec
 B<Example:>
 
 
-  
+
     my $f = storeFile(undef, my $d = [qw(aaa bbb ccc)]);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $s = retrieveFile($f);
     is_deeply $s, $d;
     unlink $f;
-  
+
 
 =head3 writeGZipFile($file, $string)
 
@@ -10497,7 +10754,7 @@ B<Example:>
 
 
     my $s = '𝝰'x1e3;
-  
+
     my $file = writeGZipFile(q(zzz.zip), $s);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok -e $file;
@@ -10505,7 +10762,7 @@ B<Example:>
     ok $s eq $S;
     ok length($s) == length($S);
     unlink $file;
-  
+
 
 =head3 dumpGZipFile($file, $structure)
 
@@ -10519,14 +10776,14 @@ B<Example:>
 
 
     my $d = [1, 2, 3=>{a=>4, b=>5}];
-  
+
     my $file = dumpGZipFile(q(zzz.zip), $d);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok -e $file;
     my $D = evalGZipFile($file);
     is_deeply $d, $D;
     unlink $file;
-  
+
 
 =head3 writeFiles($hash, $old, $new)
 
@@ -10547,8 +10804,8 @@ B<Example:>
     my ($a1, $a2) = map {fpe($a, $_, q(txt))} 1..2;
     my ($b1, $b2) = map {fpe($b, $_, q(txt))} 1..2;
     my $files = {$a1 => "1111", $a2 => "2222"};
-  
-  
+
+
     writeFiles($files);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $ra = readFiles($a);
@@ -10556,18 +10813,18 @@ B<Example:>
     copyFolder($a, $b);
     my $rb = readFiles($b);
     is_deeply [sort values %$ra], [sort values %$rb];
-  
+
     unlink $a2;
     mergeFolder($a, $b);
     ok -e $b1; ok  -e $b2;
-  
+
     copyFolder($a, $b);
     ok -e $b1; ok !-e $b2;
-  
+
     copyFile($a1, $a2);
     ok readFile($a1) eq readFile($a2);
-  
-  
+
+
     writeFiles($files);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok !moveFileNoClobber  ($a1, $a2);
@@ -10577,10 +10834,10 @@ B<Example:>
     ok  moveFileNoClobber  ($a2, $a1);
     ok !-e $a2;
     ok readFile($a1) eq q(1111);
-  
+
     clearFolder(q(aaa), 11);
     clearFolder(q(bbb), 11);
-  
+
 
 =head3 readFiles(@folders)
 
@@ -10599,28 +10856,28 @@ B<Example:>
     my ($a1, $a2) = map {fpe($a, $_, q(txt))} 1..2;
     my ($b1, $b2) = map {fpe($b, $_, q(txt))} 1..2;
     my $files = {$a1 => "1111", $a2 => "2222"};
-  
+
     writeFiles($files);
-  
+
     my $ra = readFiles($a);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply $files, $ra;
     copyFolder($a, $b);
-  
+
     my $rb = readFiles($b);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply [sort values %$ra], [sort values %$rb];
-  
+
     unlink $a2;
     mergeFolder($a, $b);
     ok -e $b1; ok  -e $b2;
-  
+
     copyFolder($a, $b);
     ok -e $b1; ok !-e $b2;
-  
+
     copyFile($a1, $a2);
     ok readFile($a1) eq readFile($a2);
-  
+
     writeFiles($files);
     ok !moveFileNoClobber  ($a1, $a2);
     ok  moveFileWithClobber($a1, $a2);
@@ -10629,10 +10886,45 @@ B<Example:>
     ok  moveFileNoClobber  ($a2, $a1);
     ok !-e $a2;
     ok readFile($a1) eq q(1111);
-  
+
     clearFolder(q(aaa), 11);
     clearFolder(q(bbb), 11);
-  
+
+
+=head3 includeFiles($expand)
+
+Read the given file and expand all lines that start "includeThisFile " with the file named by the rest of the line and keep doing this until all the included files have been expanded or a repetition is detected.  Returns the expanded file or confesses if one of the included files cannot be located.
+
+     Parameter  Description
+  1  $expand    File to expand
+
+B<Example:>
+
+
+  if (1)
+   {my $d = temporaryFolder;
+    my $a = "$d/a.txt";
+    my $b = "$d/b.txt";
+    my %d = ($a => <<END,
+  aaa
+  includeThisFile $d/b.txt
+  ccc
+  END
+             $b => <<END,
+  bbb
+  END
+    );
+
+    writeFiles(\%d);
+
+    is_deeply [includeFiles($a)], ["aaa
+", "bbb
+", "ccc
+"];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+    unlink $a, $b;
+   }
+
 
 =head3 appendFile($file, $string)
 
@@ -10647,25 +10939,25 @@ B<Example:>
 
     my $f = writeFile(undef,  "aaa");
     is_deeply [readFile $f], ["aaa"];
-  
-  
+
+
     appendFile($f, "bbb");  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply [readFile $f], ["aaabbb"];
-  
+
     my $F = writeTempFile(qw(aaa bbb));
     is_deeply [readFile $F], ["aaa
 ", "bbb
 "];
-  
+
     eval {writeFile($f,  q(ccc))};
     ok $@ =~ m(File already exists:)i;
-  
+
     overWriteFile($F,    q(ccc));
     ok   readFile($F) eq q(ccc);
-  
+
     unlink $f, $F;
-  
+
 
 =head3 createEmptyFile($file)
 
@@ -10679,37 +10971,37 @@ B<Example:>
 
     my $D = temporaryFolder;
     ok  -d $D;
-  
+
     my $d = fpd($D, q(ddd));
     ok !-d $d;
-  
-  
+
+
     my @f = map {createEmptyFile(fpe($d, $_, qw(txt)))} qw(a b c);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply [sort map {fne $_} findFiles($d, qr(txt\Z))], [qw(a.txt b.txt c.txt)];
-  
+
     my @D = findDirs($D);
     my @e = ($D, $d);
     my @E = sort @e;
     is_deeply [@D], [@E];
-  
+
     is_deeply [sort map {fne $_} searchDirectoryTreesForMatchingFiles($d)],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     is_deeply [sort map {fne $_} fileList(prefferedFileName "$d/*.txt")],
               ["a.txt", "b.txt", "c.txt"];
-  
+
     ok -e $_ for @f;
-  
+
     is_deeply scalar(searchDirectoryTreeForSubFolders $D), 2;
-  
+
     my @g = fileList(qq($D/*/*.txt));
     ok @g == 3;
-  
+
     clearFolder($D, 5);
     ok onWindows ? 1 : !-e $_ for @f;
     ok onWindows ? 1 : !-d $D;
-  
+
 
 =head3 setPermissionsForFile($file, $permissions)
 
@@ -10722,20 +11014,20 @@ Apply L<chmod|https://linux.die.net/man/1/chmod> to a B<$file> to set its B<$per
 B<Example:>
 
 
-  if (1)                                                                          
+  if (1)
    {my $f = temporaryFile();
-  
+
     setPermissionsForFile($f, q(ugo=r));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $a = qx(ls -la $f);
     ok $a =~ m(-r--r--r--)s;
-  
+
     setPermissionsForFile($f, q(u=rwx));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $b = qx(ls -la $f);
     ok $b =~ m(-rwxr--r--)s;
    }
-  
+
 
 =head3 numberOfLinesInFile($file)
 
@@ -10749,16 +11041,16 @@ B<Example:>
 
     my $f = writeFile(undef, "a
 b
-");                                           
-  
-  
+");
+
+
     ok numberOfLinesInFile($f) == 2;                                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 overWriteHtmlFile($file, $data)
 
-Write an L<HTML|https://en.wikipedia.org/wiki/HTML> file to /var/www/html and make it readable
+Write an L<HTML|https://en.wikipedia.org/wiki/HTML> file to /var/www/html and make it readable.
 
      Parameter  Description
   1  $file      Target file relative to /var/www/html
@@ -10767,15 +11059,15 @@ Write an L<HTML|https://en.wikipedia.org/wiki/HTML> file to /var/www/html and ma
 B<Example:>
 
 
-  
+
     overWriteHtmlFile   (q(index.html), q(<html><h1>Hello</h1></html>));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     overWritePerlCgiFile(q(gen.pl),     q(...));
-  
+
 
 =head3 overWritePerlCgiFile($file, $data)
 
-Write a L<Perl|http://www.perl.org/> file to /usr/lib/cgi-bin and make it executable after checking it for syntax errors
+Write a L<Perl|http://www.perl.org/> file to /usr/lib/cgi-bin and make it executable after checking it for syntax errors.
 
      Parameter  Description
   1  $file      Target file relative to /var/www/html
@@ -10785,10 +11077,10 @@ B<Example:>
 
 
     overWriteHtmlFile   (q(index.html), q(<html><h1>Hello</h1></html>));
-  
+
     overWritePerlCgiFile(q(gen.pl),     q(...));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 Copy
 
@@ -10812,26 +11104,26 @@ B<Example:>
     my ($a1, $a2) = map {fpe($a, $_, q(txt))} 1..2;
     my ($b1, $b2) = map {fpe($b, $_, q(txt))} 1..2;
     my $files = {$a1 => "1111", $a2 => "2222"};
-  
+
     writeFiles($files);
     my $ra = readFiles($a);
     is_deeply $files, $ra;
     copyFolder($a, $b);
     my $rb = readFiles($b);
     is_deeply [sort values %$ra], [sort values %$rb];
-  
+
     unlink $a2;
     mergeFolder($a, $b);
     ok -e $b1; ok  -e $b2;
-  
+
     copyFolder($a, $b);
     ok -e $b1; ok !-e $b2;
-  
-  
+
+
     copyFile($a1, $a2);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok readFile($a1) eq readFile($a2);
-  
+
     writeFiles($files);
     ok !moveFileNoClobber  ($a1, $a2);
     ok  moveFileWithClobber($a1, $a2);
@@ -10840,10 +11132,10 @@ B<Example:>
     ok  moveFileNoClobber  ($a2, $a1);
     ok !-e $a2;
     ok readFile($a1) eq q(1111);
-  
+
     clearFolder(q(aaa), 11);
     clearFolder(q(bbb), 11);
-  
+
 
 =head3 moveFileNoClobber($source, $target)
 
@@ -10863,40 +11155,40 @@ B<Example:>
     my ($a1, $a2) = map {fpe($a, $_, q(txt))} 1..2;
     my ($b1, $b2) = map {fpe($b, $_, q(txt))} 1..2;
     my $files = {$a1 => "1111", $a2 => "2222"};
-  
+
     writeFiles($files);
     my $ra = readFiles($a);
     is_deeply $files, $ra;
     copyFolder($a, $b);
     my $rb = readFiles($b);
     is_deeply [sort values %$ra], [sort values %$rb];
-  
+
     unlink $a2;
     mergeFolder($a, $b);
     ok -e $b1; ok  -e $b2;
-  
+
     copyFolder($a, $b);
     ok -e $b1; ok !-e $b2;
-  
+
     copyFile($a1, $a2);
     ok readFile($a1) eq readFile($a2);
-  
+
     writeFiles($files);
-  
+
     ok !moveFileNoClobber  ($a1, $a2);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok  moveFileWithClobber($a1, $a2);
     ok !-e $a1;
     ok readFile($a2) eq q(1111);
-  
+
     ok  moveFileNoClobber  ($a2, $a1);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok !-e $a2;
     ok readFile($a1) eq q(1111);
-  
+
     clearFolder(q(aaa), 11);
     clearFolder(q(bbb), 11);
-  
+
 
 =head3 moveFileWithClobber($source, $target)
 
@@ -10916,27 +11208,27 @@ B<Example:>
     my ($a1, $a2) = map {fpe($a, $_, q(txt))} 1..2;
     my ($b1, $b2) = map {fpe($b, $_, q(txt))} 1..2;
     my $files = {$a1 => "1111", $a2 => "2222"};
-  
+
     writeFiles($files);
     my $ra = readFiles($a);
     is_deeply $files, $ra;
     copyFolder($a, $b);
     my $rb = readFiles($b);
     is_deeply [sort values %$ra], [sort values %$rb];
-  
+
     unlink $a2;
     mergeFolder($a, $b);
     ok -e $b1; ok  -e $b2;
-  
+
     copyFolder($a, $b);
     ok -e $b1; ok !-e $b2;
-  
+
     copyFile($a1, $a2);
     ok readFile($a1) eq readFile($a2);
-  
+
     writeFiles($files);
     ok !moveFileNoClobber  ($a1, $a2);
-  
+
     ok  moveFileWithClobber($a1, $a2);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok !-e $a1;
@@ -10944,10 +11236,10 @@ B<Example:>
     ok  moveFileNoClobber  ($a2, $a1);
     ok !-e $a2;
     ok readFile($a1) eq q(1111);
-  
+
     clearFolder(q(aaa), 11);
     clearFolder(q(bbb), 11);
-  
+
 
 =head3 copyFileToFolder($source, $targetFolder)
 
@@ -10963,13 +11255,13 @@ B<Example:>
     my $sd = temporaryFolder;
     my $td = temporaryFolder;
     my $sf = writeFile fpe($sd, qw(test data)), q(aaaa);
-  
+
     my $tf = copyFileToFolder($sf, $td);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok readFile($tf) eq q(aaaa);
     ok fp ($tf) eq $td;
     ok fne($tf) eq q(test.data);
-  
+
 
 =head3 nameFromString($string, %options)
 
@@ -10982,19 +11274,19 @@ Create a readable name from an arbitrary string of text.
 B<Example:>
 
 
-  
+
   ok q(help) eq nameFromString(q(!@#$%^help___<>?><?>));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
   ok q(bm_The_skyscraper_analogy) eq nameFromString(<<END);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   <bookmap id="b1">
   <title>The skyscraper analogy</title>
   </bookmap>
   END
-  
+
   ok q(bm_The_skyscraper_analogy_An_exciting_tale_of_two_skyscrapers_that_meet_in_downtown_Houston)
-  
+
      eq nameFromString(<<END);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   <bookmap id="b1">
@@ -11003,7 +11295,7 @@ B<Example:>
   <concept><html>
   </bookmap>
   END
-  
+
   ok q(bm_the_skyscraper_analogy) eq nameFromStringRestrictedToTitle(<<END);
   <bookmap id="b1">
   <title>The skyscraper analogy</title>
@@ -11011,7 +11303,7 @@ B<Example:>
   <concept><html>
   </bookmap>
   END
-  
+
 
 =head3 nameFromStringRestrictedToTitle($string, %options)
 
@@ -11030,7 +11322,7 @@ B<Example:>
   <title>The skyscraper analogy</title>
   </bookmap>
   END
-  
+
   ok q(bm_The_skyscraper_analogy_An_exciting_tale_of_two_skyscrapers_that_meet_in_downtown_Houston)
      eq nameFromString(<<END);
   <bookmap id="b1">
@@ -11039,8 +11331,8 @@ B<Example:>
   <concept><html>
   </bookmap>
   END
-  
-  
+
+
   ok q(bm_the_skyscraper_analogy) eq nameFromStringRestrictedToTitle(<<END);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   <bookmap id="b1">
@@ -11049,11 +11341,11 @@ B<Example:>
   <concept><html>
   </bookmap>
   END
-  
+
 
 =head3 uniqueNameFromFile($source)
 
-Create a unique name from a file name and the md5 sum of its content
+Create a unique name from a file name and the md5 sum of its content.
 
      Parameter  Description
   1  $source    Source file
@@ -11062,11 +11354,11 @@ B<Example:>
 
 
     my $f = owf(q(test.txt), join "", 1..100);
-  
+
     ok uniqueNameFromFile($f) eq q(test_ef69caaaeea9c17120821a9eb6c7f1de.txt);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     unlink $f;
-  
+
 
 =head3 nameFromFolder($file)
 
@@ -11078,239 +11370,14 @@ Create a name from the last folder in the path of a file name.  Return undef if 
 B<Example:>
 
 
-  
+
     ok nameFromFolder(fpe(qw( a b c d e))) eq q(c);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
 
-=head3 copyFileMd5Normalized($source, $Target)
-
-Normalize the name of the specified B<$source> file to the md5 sum of its content, retaining its current extension, while placing the original file name in a companion file if the companion file does not already exist.  If no B<$target> folder is supplied the file is renamed to its normalized form in situ, otherwise it is copied to the target folder and renamed there. A companion file for the B<$source> file is created by removing the extension of the normalized file and writing the original B<$source> file name to it unless such a file already exists as we assume that it contains the 'original' original name of the B<$source> file. If the B<$source> file is copied to a new location then the companion file is copied as well to maintain the link back to the original name of the file.
-
-     Parameter  Description
-  1  $source    Source file
-  2  $Target    Target folder or a file in the target folder
-
-B<Example:>
-
-
-    my $dir = temporaryFolder;
-    my $a = fpe($dir, qw(a a jpg));
-    my $b = fpe($dir, qw(b a jpg));
-    my $c = fpe($dir, qw(c a jpg));
-  
-    my $content = join '', 1..1e3;
-  
-    my $A = copyFileMd5NormalizedCreate($a, $content, q(jpg), $a);
-    ok readFile($A) eq $content;
-  
-    ok $A eq copyFileMd5Normalized($A);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-  
-  
-    my $B = copyFileMd5Normalized($A, $b);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-    ok readFile($B) eq $content;
-  
-    ok $B eq copyFileMd5Normalized($B);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-  
-  
-    my $C = copyFileMd5Normalized($B, $c);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-    ok readFile($C) eq $content;
-  
-    ok $C eq copyFileMd5Normalized($C);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-  
-    ok fne($A) eq fne($_) for $B, $C;
-    ok readFile($_) eq $content for $A, $B, $C;
-    ok copyFileMd5NormalizedGetCompanionContent($_) eq $a for $A, $B, $C;
-  
-    ok 6 == searchDirectoryTreesForMatchingFiles($dir);
-    copyFileMd5NormalizedDelete($A);
-    ok 4 == searchDirectoryTreesForMatchingFiles($dir);
-    copyFileMd5NormalizedDelete($B);
-    ok 2 == searchDirectoryTreesForMatchingFiles($dir);
-    copyFileMd5NormalizedDelete($C);
-    ok 0 == searchDirectoryTreesForMatchingFiles($dir);
-  
-    clearFolder($dir, 10);
-    ok 0 == searchDirectoryTreesForMatchingFiles($dir);
-  
-
-=head3 copyFileMd5NormalizedName($content, $extension, %options)
-
-Name a file using the GB Standard
-
-     Parameter   Description
-  1  $content    Content
-  2  $extension  Extension
-  3  %options    Options
-
-B<Example:>
-
-
-  
-    ok copyFileMd5NormalizedName(<<END, q(txt)) eq  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-  <p>Hello<b>World</b></p>
-  END
-  q(Hello_World_6ba23858c1b4811660896c324acac6fa.txt);
-  
-
-=head3 copyFileMd5NormalizedCreate($Folder, $content, $extension, $companionContent, %options)
-
-Create a file in the specified B<$folder> whose name is constructed from the md5 sum of the specified B<$content>, whose content is B<$content>, whose extension is B<$extension> and which has a companion file with the same name minus the extension which contains the specified B<$companionContent>.  Such a file can be copied multiple times by L<copyFileMd5Normalized|/copyFileMd5Normalized> regardless of the other files in the target folders.
-
-     Parameter          Description
-  1  $Folder            Target folder or a file in that folder
-  2  $content           Content of the file
-  3  $extension         File extension
-  4  $companionContent  Contents of the companion file
-  5  %options           Options.
-
-B<Example:>
-
-
-    my $dir = temporaryFolder;
-    my $a = fpe($dir, qw(a a jpg));
-    my $b = fpe($dir, qw(b a jpg));
-    my $c = fpe($dir, qw(c a jpg));
-  
-    my $content = join '', 1..1e3;
-  
-  
-    my $A = copyFileMd5NormalizedCreate($a, $content, q(jpg), $a);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-    ok readFile($A) eq $content;
-    ok $A eq copyFileMd5Normalized($A);
-  
-    my $B = copyFileMd5Normalized($A, $b);
-    ok readFile($B) eq $content;
-    ok $B eq copyFileMd5Normalized($B);
-  
-    my $C = copyFileMd5Normalized($B, $c);
-    ok readFile($C) eq $content;
-    ok $C eq copyFileMd5Normalized($C);
-  
-    ok fne($A) eq fne($_) for $B, $C;
-    ok readFile($_) eq $content for $A, $B, $C;
-    ok copyFileMd5NormalizedGetCompanionContent($_) eq $a for $A, $B, $C;
-  
-    ok 6 == searchDirectoryTreesForMatchingFiles($dir);
-    copyFileMd5NormalizedDelete($A);
-    ok 4 == searchDirectoryTreesForMatchingFiles($dir);
-    copyFileMd5NormalizedDelete($B);
-    ok 2 == searchDirectoryTreesForMatchingFiles($dir);
-    copyFileMd5NormalizedDelete($C);
-    ok 0 == searchDirectoryTreesForMatchingFiles($dir);
-  
-    clearFolder($dir, 10);
-    ok 0 == searchDirectoryTreesForMatchingFiles($dir);
-  
-
-=head3 copyFileMd5NormalizedGetCompanionContent($source)
-
-Return the content of the companion file to the specified B<$source> file after it has been normalized via L<copyFileMd5Normalized|/copyFileMd5Normalized> or L<copyFileMd5NormalizedCreate|/copyFileMd5NormalizedCreate> or return B<undef> if the corresponding companion file does not exist.
-
-     Parameter  Description
-  1  $source    Source file.
-
-B<Example:>
-
-
-    my $dir = temporaryFolder;
-    my $a = fpe($dir, qw(a a jpg));
-    my $b = fpe($dir, qw(b a jpg));
-    my $c = fpe($dir, qw(c a jpg));
-  
-    my $content = join '', 1..1e3;
-  
-    my $A = copyFileMd5NormalizedCreate($a, $content, q(jpg), $a);
-    ok readFile($A) eq $content;
-    ok $A eq copyFileMd5Normalized($A);
-  
-    my $B = copyFileMd5Normalized($A, $b);
-    ok readFile($B) eq $content;
-    ok $B eq copyFileMd5Normalized($B);
-  
-    my $C = copyFileMd5Normalized($B, $c);
-    ok readFile($C) eq $content;
-    ok $C eq copyFileMd5Normalized($C);
-  
-    ok fne($A) eq fne($_) for $B, $C;
-    ok readFile($_) eq $content for $A, $B, $C;
-  
-    ok copyFileMd5NormalizedGetCompanionContent($_) eq $a for $A, $B, $C;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-  
-    ok 6 == searchDirectoryTreesForMatchingFiles($dir);
-    copyFileMd5NormalizedDelete($A);
-    ok 4 == searchDirectoryTreesForMatchingFiles($dir);
-    copyFileMd5NormalizedDelete($B);
-    ok 2 == searchDirectoryTreesForMatchingFiles($dir);
-    copyFileMd5NormalizedDelete($C);
-    ok 0 == searchDirectoryTreesForMatchingFiles($dir);
-  
-    clearFolder($dir, 10);
-    ok 0 == searchDirectoryTreesForMatchingFiles($dir);
-  
-
-=head3 copyFileMd5NormalizedDelete($file)
-
-Delete a normalized and its companion file
-
-     Parameter  Description
-  1  $file      File
-
-B<Example:>
-
-
-    my $dir = temporaryFolder;
-    my $a = fpe($dir, qw(a a jpg));
-    my $b = fpe($dir, qw(b a jpg));
-    my $c = fpe($dir, qw(c a jpg));
-  
-    my $content = join '', 1..1e3;
-  
-    my $A = copyFileMd5NormalizedCreate($a, $content, q(jpg), $a);
-    ok readFile($A) eq $content;
-    ok $A eq copyFileMd5Normalized($A);
-  
-    my $B = copyFileMd5Normalized($A, $b);
-    ok readFile($B) eq $content;
-    ok $B eq copyFileMd5Normalized($B);
-  
-    my $C = copyFileMd5Normalized($B, $c);
-    ok readFile($C) eq $content;
-    ok $C eq copyFileMd5Normalized($C);
-  
-    ok fne($A) eq fne($_) for $B, $C;
-    ok readFile($_) eq $content for $A, $B, $C;
-    ok copyFileMd5NormalizedGetCompanionContent($_) eq $a for $A, $B, $C;
-  
-    ok 6 == searchDirectoryTreesForMatchingFiles($dir);
-  
-    copyFileMd5NormalizedDelete($A);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-    ok 4 == searchDirectoryTreesForMatchingFiles($dir);
-  
-    copyFileMd5NormalizedDelete($B);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-    ok 2 == searchDirectoryTreesForMatchingFiles($dir);
-  
-    copyFileMd5NormalizedDelete($C);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-    ok 0 == searchDirectoryTreesForMatchingFiles($dir);
-  
-    clearFolder($dir, 10);
-    ok 0 == searchDirectoryTreesForMatchingFiles($dir);
-  
 
 =head3 copyBinaryFile($source, $target)
 
-Copy the binary file B<$source> to a file named <%target> and return the target file name,
+Copy the binary file B<$source> to a file named <%target> and return the target file name,.
 
      Parameter  Description
   1  $source    Source file
@@ -11319,165 +11386,36 @@ Copy the binary file B<$source> to a file named <%target> and return the target 
 B<Example:>
 
 
-  if (1)                                                                            
-   {vec(my $a, 0, 8) = 254;
-    vec(my $b, 0, 8) = 255;
+  if (1)
+   {vec(my $a = '', 0, 8) = 254;
+    vec(my $b = '', 0, 8) = 255;
     ok dump($a) eq dump("FE");
     ok dump($b) eq dump("FF");
     ok length($a) == 1;
     ok length($b) == 1;
-  
+
     my $s = $a.$a.$b.$b;
     ok length($s) == 4;
-  
+
     my $f = eval {writeFile(undef, $s)};
     ok fileSize($f) == 8;
-  
+
     eval {writeBinaryFile($f, $s)};
     ok $@ =~ m(Binary file already exists:)s;
-  
+
     eval {overWriteBinaryFile($f, $s)};
     ok !$@;
     ok fileSize($f) == 4;
-  
+
     ok $s eq eval {readBinaryFile($f)};
-  
-  
+
+
     copyBinaryFile($f, my $F = temporaryFile);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $s eq readBinaryFile($F);
     unlink $f, $F;
    }
-  
 
-=head3 copyBinaryFileMd5Normalized($source, $Target)
-
-Normalize the name of the specified B<$source> file to the md5 sum of its content, retaining its current extension, while placing the original file name in a companion file if the companion file does not already exist.  If no B<$target> folder is supplied the file is renamed to its normalized form in situ, otherwise it is copied to the target folder and renamed there. A companion file for the B<$source> file is created by removing the extension of the normalized file and writing the original B<$source> file name to it unless such a file already exists as we assume that it contains the 'original' original name of the B<$source> file. If the B<$source> file is copied to a new location then the companion file is copied as well to maintain the link back to the original name of the file.
-
-     Parameter  Description
-  1  $source    Source file
-  2  $Target    Target folder or a file in the target folder
-
-B<Example:>
-
-
-    my $dir = temporaryFolder;
-    my $a = fpe($dir, qw(a a jpg));
-    my $b = fpe($dir, qw(b a jpg));
-    my $c = fpe($dir, qw(c a jpg));
-  
-    my $content = join '', 1..1e3;
-  
-    my $A = copyBinaryFileMd5NormalizedCreate($a, $content, q(jpg), $a);
-    ok readBinaryFile($A) eq $content;
-  
-    ok $A eq copyBinaryFileMd5Normalized($A);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-  
-  
-    my $B = copyBinaryFileMd5Normalized($A, $b);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-    ok readBinaryFile($B) eq $content;
-  
-    ok $B eq copyBinaryFileMd5Normalized($B);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-  
-  
-    my $C = copyBinaryFileMd5Normalized($B, $c);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-    ok readBinaryFile($C) eq $content;
-  
-    ok $C eq copyBinaryFileMd5Normalized($C);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-  
-    ok fne($A) eq fne($_) for $B, $C;
-    ok readBinaryFile($_) eq $content for $A, $B, $C;
-    ok copyBinaryFileMd5NormalizedGetCompanionContent($_) eq $a for $A, $B, $C;
-  
-    ok 6 == searchDirectoryTreesForMatchingFiles($dir);
-    clearFolder($dir, 10);
-  
-
-=head3 copyBinaryFileMd5NormalizedCreate($Folder, $content, $extension, $companionContent)
-
-Create a file in the specified B<$folder> whose name is constructed from the md5 sum of the specified B<$content>, whose content is B<$content>, whose extension is B<$extension> and which has a companion file with the same name minus the extension  which contains the specified B<$companionContent>.  Such a file can be copied multiple times by L<copyBinaryFileMd5Normalized|/copyBinaryFileMd5Normalized> regardless of the other files in the target folders while retaining the original name information.
-
-     Parameter          Description
-  1  $Folder            Target folder or a file in that folder
-  2  $content           Content of the file
-  3  $extension         File extension
-  4  $companionContent  Optional content of the companion file.
-
-B<Example:>
-
-
-    my $dir = temporaryFolder;
-    my $a = fpe($dir, qw(a a jpg));
-    my $b = fpe($dir, qw(b a jpg));
-    my $c = fpe($dir, qw(c a jpg));
-  
-    my $content = join '', 1..1e3;
-  
-  
-    my $A = copyBinaryFileMd5NormalizedCreate($a, $content, q(jpg), $a);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-    ok readBinaryFile($A) eq $content;
-    ok $A eq copyBinaryFileMd5Normalized($A);
-  
-    my $B = copyBinaryFileMd5Normalized($A, $b);
-    ok readBinaryFile($B) eq $content;
-    ok $B eq copyBinaryFileMd5Normalized($B);
-  
-    my $C = copyBinaryFileMd5Normalized($B, $c);
-    ok readBinaryFile($C) eq $content;
-    ok $C eq copyBinaryFileMd5Normalized($C);
-  
-    ok fne($A) eq fne($_) for $B, $C;
-    ok readBinaryFile($_) eq $content for $A, $B, $C;
-    ok copyBinaryFileMd5NormalizedGetCompanionContent($_) eq $a for $A, $B, $C;
-  
-    ok 6 == searchDirectoryTreesForMatchingFiles($dir);
-    clearFolder($dir, 10);
-  
-
-=head3 copyBinaryFileMd5NormalizedGetCompanionContent($source)
-
-Return the original name of the specified B<$source> file after it has been normalized via L<copyBinaryFileMd5Normalized|/copyBinaryFileMd5Normalized> or L<copyBinaryFileMd5NormalizedCreate|/copyBinaryFileMd5NormalizedCreate> or return B<undef> if the corresponding companion file does not exist.
-
-     Parameter  Description
-  1  $source    Source file.
-
-B<Example:>
-
-
-    my $dir = temporaryFolder;
-    my $a = fpe($dir, qw(a a jpg));
-    my $b = fpe($dir, qw(b a jpg));
-    my $c = fpe($dir, qw(c a jpg));
-  
-    my $content = join '', 1..1e3;
-  
-    my $A = copyBinaryFileMd5NormalizedCreate($a, $content, q(jpg), $a);
-    ok readBinaryFile($A) eq $content;
-    ok $A eq copyBinaryFileMd5Normalized($A);
-  
-    my $B = copyBinaryFileMd5Normalized($A, $b);
-    ok readBinaryFile($B) eq $content;
-    ok $B eq copyBinaryFileMd5Normalized($B);
-  
-    my $C = copyBinaryFileMd5Normalized($B, $c);
-    ok readBinaryFile($C) eq $content;
-    ok $C eq copyBinaryFileMd5Normalized($C);
-  
-    ok fne($A) eq fne($_) for $B, $C;
-    ok readBinaryFile($_) eq $content for $A, $B, $C;
-  
-    ok copyBinaryFileMd5NormalizedGetCompanionContent($_) eq $a for $A, $B, $C;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
-
-  
-    ok 6 == searchDirectoryTreesForMatchingFiles($dir);
-    clearFolder($dir, 10);
-  
 
 =head3 copyFileToRemote($file, $ip)
 
@@ -11490,15 +11428,15 @@ Copy the specified local B<$file> to the server whose ip address is specified by
 B<Example:>
 
 
-  if (0)                                                                             
-  
+  if (0)
+
    {copyFileToRemote     (q(/home/phil/perl/cpan/aaa.txt));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     copyFileFromRemote   (q(/home/phil/perl/cpan/aaa.txt));
     copyFolderToRemote   (q(/home/phil/perl/cpan/));
     mergeFolderFromRemote(q(/home/phil/perl/cpan/));
    }
-  
+
 
 =head3 copyFileFromRemote($file, $ip)
 
@@ -11511,15 +11449,15 @@ Copy the specified B<$file> from the server whose ip address is specified by B<$
 B<Example:>
 
 
-  if (0)                                                                             
+  if (0)
    {copyFileToRemote     (q(/home/phil/perl/cpan/aaa.txt));
-  
+
     copyFileFromRemote   (q(/home/phil/perl/cpan/aaa.txt));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     copyFolderToRemote   (q(/home/phil/perl/cpan/));
     mergeFolderFromRemote(q(/home/phil/perl/cpan/));
    }
-  
+
 
 =head3 copyFolder($source, $target)
 
@@ -11539,28 +11477,28 @@ B<Example:>
     my ($a1, $a2) = map {fpe($a, $_, q(txt))} 1..2;
     my ($b1, $b2) = map {fpe($b, $_, q(txt))} 1..2;
     my $files = {$a1 => "1111", $a2 => "2222"};
-  
+
     writeFiles($files);
     my $ra = readFiles($a);
     is_deeply $files, $ra;
-  
+
     copyFolder($a, $b);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $rb = readFiles($b);
     is_deeply [sort values %$ra], [sort values %$rb];
-  
+
     unlink $a2;
     mergeFolder($a, $b);
     ok -e $b1; ok  -e $b2;
-  
-  
+
+
     copyFolder($a, $b);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok -e $b1; ok !-e $b2;
-  
+
     copyFile($a1, $a2);
     ok readFile($a1) eq readFile($a2);
-  
+
     writeFiles($files);
     ok !moveFileNoClobber  ($a1, $a2);
     ok  moveFileWithClobber($a1, $a2);
@@ -11569,10 +11507,10 @@ B<Example:>
     ok  moveFileNoClobber  ($a2, $a1);
     ok !-e $a2;
     ok readFile($a1) eq q(1111);
-  
+
     clearFolder(q(aaa), 11);
     clearFolder(q(bbb), 11);
-  
+
 
 =head3 mergeFolder($source, $target)
 
@@ -11592,26 +11530,26 @@ B<Example:>
     my ($a1, $a2) = map {fpe($a, $_, q(txt))} 1..2;
     my ($b1, $b2) = map {fpe($b, $_, q(txt))} 1..2;
     my $files = {$a1 => "1111", $a2 => "2222"};
-  
+
     writeFiles($files);
     my $ra = readFiles($a);
     is_deeply $files, $ra;
     copyFolder($a, $b);
     my $rb = readFiles($b);
     is_deeply [sort values %$ra], [sort values %$rb];
-  
+
     unlink $a2;
-  
+
     mergeFolder($a, $b);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok -e $b1; ok  -e $b2;
-  
+
     copyFolder($a, $b);
     ok -e $b1; ok !-e $b2;
-  
+
     copyFile($a1, $a2);
     ok readFile($a1) eq readFile($a2);
-  
+
     writeFiles($files);
     ok !moveFileNoClobber  ($a1, $a2);
     ok  moveFileWithClobber($a1, $a2);
@@ -11620,10 +11558,10 @@ B<Example:>
     ok  moveFileNoClobber  ($a2, $a1);
     ok !-e $a2;
     ok readFile($a1) eq q(1111);
-  
+
     clearFolder(q(aaa), 11);
     clearFolder(q(bbb), 11);
-  
+
 
 =head3 copyFolderToRemote($Source, $ip)
 
@@ -11636,15 +11574,15 @@ Copy the specified local B<$Source> folder to the corresponding remote folder on
 B<Example:>
 
 
-  if (0)                                                                             
+  if (0)
    {copyFileToRemote     (q(/home/phil/perl/cpan/aaa.txt));
     copyFileFromRemote   (q(/home/phil/perl/cpan/aaa.txt));
-  
+
     copyFolderToRemote   (q(/home/phil/perl/cpan/));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     mergeFolderFromRemote(q(/home/phil/perl/cpan/));
    }
-  
+
 
 =head3 mergeFolderFromRemote($Source, $ip)
 
@@ -11657,15 +11595,15 @@ Merge the specified B<$Source> folder from the corresponding remote folder on th
 B<Example:>
 
 
-  if (0)                                                                             
+  if (0)
    {copyFileToRemote     (q(/home/phil/perl/cpan/aaa.txt));
     copyFileFromRemote   (q(/home/phil/perl/cpan/aaa.txt));
     copyFolderToRemote   (q(/home/phil/perl/cpan/));
-  
+
     mergeFolderFromRemote(q(/home/phil/perl/cpan/));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    }
-  
+
 
 =head1 Testing
 
@@ -11681,25 +11619,25 @@ Remove all file paths from a specified B<$structure> to make said $structure tes
 B<Example:>
 
 
-  if (1)                                                                           
+  if (1)
    {my $d = {"/home/aaa/bbb.txt"=>1, "ccc/ddd.txt"=>2, "eee.txt"=>3};
-  
+
     my $D = removeFilePathsFromStructure($d);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
     is_deeply removeFilePathsFromStructure($d),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      {"bbb.txt"=>1, "ddd.txt"=>2, "eee.txt"=>3};
-  
+
     ok writeStructureTest($d, q($d)) eq <<'END';
-  
+
     is_deeply removeFilePathsFromStructure($d),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      { "bbb.txt" => 1, "ddd.txt" => 2, "eee.txt" => 3 };
   END
    }
-  
+
 
 =head2 writeStructureTest($structure, $expr)
 
@@ -11712,21 +11650,46 @@ Write a test for a data B<$structure> with file names in it.
 B<Example:>
 
 
-  if (1)                                                                           
+  if (1)
    {my $d = {"/home/aaa/bbb.txt"=>1, "ccc/ddd.txt"=>2, "eee.txt"=>3};
     my $D = removeFilePathsFromStructure($d);
-  
+
     is_deeply removeFilePathsFromStructure($d),
      {"bbb.txt"=>1, "ddd.txt"=>2, "eee.txt"=>3};
-  
-  
+
+
     ok writeStructureTest($d, q($d)) eq <<'END';  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply removeFilePathsFromStructure($d),
      { "bbb.txt" => 1, "ddd.txt" => 2, "eee.txt" => 3 };
   END
    }
-  
+
+
+=head2 subNameTraceBack()
+
+Find the names of the calling subroutines and return them as a blank separated string of names.
+
+
+B<Example:>
+
+
+    sub aaa
+     {&bbb;
+     }
+
+    sub bbb
+     {&ccc;
+     }
+
+    sub ccc
+
+     {subNameTraceBack;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+     }
+
+    ok aaa =~ s(Data::Table::Text::) ()gsr =~ m(\Accc bbb aaa);
+
 
 =head1 Images
 
@@ -11742,10 +11705,10 @@ Return (width, height) of an B<$image>.
 B<Example:>
 
 
-  
+
     my ($width, $height) = imageSize(fpe(qw(a image jpg)));                         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 convertDocxToFodt($inputFile, $outputFile)
 
@@ -11753,7 +11716,7 @@ Convert a I<docx> B<$inputFile> file to a I<fodt> B<$outputFile> using B<unoconv
 
   sudo apt install sharutils unoconv
 
-Parameters:
+Parameters:.
 
      Parameter    Description
   1  $inputFile   Input file
@@ -11762,10 +11725,10 @@ Parameters:
 B<Example:>
 
 
-  
+
     convertDocxToFodt(fpe(qw(a docx)), fpe(qw(a fodt)));                            # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 cutOutImagesInFodtFile($inputFile, $outputFolder, $imagePrefix)
 
@@ -11777,7 +11740,7 @@ This conversion requires that you have both L<Imagemagick|https://www.imagemagic
 
     sudo apt install sharutils  imagemagick unoconv
 
-Parameters:
+Parameters:.
 
      Parameter      Description
   1  $inputFile     Input file
@@ -11787,10 +11750,10 @@ Parameters:
 B<Example:>
 
 
-  
+
     cutOutImagesInFodtFile(fpe(qw(source fodt)), fpd(qw(images)), q(image));        # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head1 Encoding and Decoding
 
@@ -11806,17 +11769,17 @@ Remove the effects of bless from a L<Perl|http://www.perl.org/> data B<$structur
 B<Example:>
 
 
-  if (1)                                                                          
+  if (1)
    {my $a = {};
     ok ref($a)      eq  q(HASH);
     my $b =   bless $a, q(aaaa);
     ok ref($a)      eq  q(aaaa);
-  
+
     my $c = unbless $b;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok ref($c)      eq  q(HASH);
    }
-  
+
 
 =head2 encodeJson($structure)
 
@@ -11828,12 +11791,12 @@ Convert a L<Perl|http://www.perl.org/> data B<$structure> to a L<Json|https://en
 B<Example:>
 
 
-  
+
     my $A = encodeJson(my $a = {a=>1,b=>2, c=>[1..2]});  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $b = decodeJson($A);
     is_deeply $a, $b;
-  
+
 
 =head2 decodeJson($string)
 
@@ -11846,11 +11809,11 @@ B<Example:>
 
 
     my $A = encodeJson(my $a = {a=>1,b=>2, c=>[1..2]});
-  
+
     my $b = decodeJson($A);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply $a, $b;
-  
+
 
 =head2 encodeBase64($string)
 
@@ -11862,12 +11825,12 @@ Encode an L<Ascii|https://en.wikipedia.org/wiki/ASCII> B<$string> in base 64.
 B<Example:>
 
 
-  
+
     my $A = encodeBase64(my $a = "Hello World" x 10);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $b = decodeBase64($A);
     ok $a eq $b;
-  
+
 
 =head2 decodeBase64($string)
 
@@ -11880,11 +11843,11 @@ B<Example:>
 
 
     my $A = encodeBase64(my $a = "Hello World" x 10);
-  
+
     my $b = decodeBase64($A);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $a eq $b;
-  
+
 
 =head2 convertUnicodeToXml($string)
 
@@ -11896,10 +11859,10 @@ Convert a B<$string> with L<Unicode|https://en.wikipedia.org/wiki/Unicode> code 
 B<Example:>
 
 
-  
+
   ok convertUnicodeToXml('setenta e três') eq q(setenta e tr&#234;s);               # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 asciiToHexString($ascii)
 
@@ -11911,11 +11874,11 @@ Encode an L<Ascii|https://en.wikipedia.org/wiki/ASCII> string as a string of L<h
 B<Example:>
 
 
-  
+
     ok asciiToHexString("Hello World!") eq                  "48656c6c6f20576f726c6421";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok                  "Hello World!"  eq hexToAsciiString("48656c6c6f20576f726c6421");
-  
+
 
 =head2 hexToAsciiString($hex)
 
@@ -11928,14 +11891,14 @@ B<Example:>
 
 
     ok asciiToHexString("Hello World!") eq                  "48656c6c6f20576f726c6421";
-  
+
     ok                  "Hello World!"  eq hexToAsciiString("48656c6c6f20576f726c6421");  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 wwwEncode($string)
 
-Percent encode a L<url|https://en.wikipedia.org/wiki/URL> per: https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_reserved_characters
+Percent encode a L<url|https://en.wikipedia.org/wiki/URL> per: https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_reserved_characters.
 
      Parameter  Description
   1  $string    String
@@ -11943,28 +11906,28 @@ Percent encode a L<url|https://en.wikipedia.org/wiki/URL> per: https://en.wikipe
 B<Example:>
 
 
-  
+
     ok wwwEncode(q(a  {b} <c>)) eq q(a%20%20%7bb%7d%20%3cc%3e);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok wwwEncode(q(../))        eq q(%2e%2e/);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok wwwDecode(wwwEncode $_)  eq $_ for q(a  {b} <c>), q(a  b|c),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       q(%), q(%%), q(%%.%%);
-  
-  
+
+
   sub wwwEncode($)                                                                 # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    {my ($string) = @_;                                                            # String
     join '', map {$translatePercentEncoding{$_}//$_} split //, $string
    }
-  
+
 
 =head2 wwwDecode($string)
 
-Percent decode a L<url|https://en.wikipedia.org/wiki/URL> B<$string> per: https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_reserved_characters
+Percent decode a L<url|https://en.wikipedia.org/wiki/URL> B<$string> per: https://en.wikipedia.org/wiki/Percent-encoding#Percent-encoding_reserved_characters.
 
      Parameter  Description
   1  $string    String
@@ -11974,12 +11937,12 @@ B<Example:>
 
     ok wwwEncode(q(a  {b} <c>)) eq q(a%20%20%7bb%7d%20%3cc%3e);
     ok wwwEncode(q(../))        eq q(%2e%2e/);
-  
+
     ok wwwDecode(wwwEncode $_)  eq $_ for q(a  {b} <c>), q(a  b|c),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       q(%), q(%%), q(%%.%%);
-  
-  
+
+
   sub wwwDecode($)                                                                 # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    {my ($string) = @_;                                                            # String
@@ -12000,7 +11963,7 @@ B<Example:>
     $r =~ s(\+)     ( )gs;
     $r
    }
-  
+
 
 =head1 Numbers
 
@@ -12016,22 +11979,19 @@ Test whether a number B<$n> is a power of two, return the power if it is else B<
 B<Example:>
 
 
-  
-  ok  powerOfTwo(1) == 0;                                                           # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
-  ok  powerOfTwo(2) == 1;                                                           # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+    ok  powerOfTwo(1) == 0;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
-  ok !powerOfTwo(3);                                                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
-  ok  powerOfTwo(4) == 2;                                                           # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+    ok  powerOfTwo(2) == 1;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
+    ok !powerOfTwo(3);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+    ok  powerOfTwo(4) == 2;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
 
 =head2 containingPowerOfTwo($n)
 
@@ -12043,22 +12003,73 @@ Find log two of the lowest power of two greater than or equal to a number B<$n>.
 B<Example:>
 
 
-  
-  ok  containingPowerOfTwo(1) == 0;                                                 # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
-  ok  containingPowerOfTwo(2) == 1;                                                 # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+    ok containingPowerOfTwo(1) == 0;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
-  ok  containingPowerOfTwo(3) == 2;                                                 # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
-  ok  containingPowerOfTwo(4) == 2;                                                 # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+    ok containingPowerOfTwo(2) == 1;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
+    ok containingPowerOfTwo(3) == 2;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+    ok containingPowerOfTwo(4) == 2;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+    ok containingPowerOfTwo(5) == 3;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+    ok containingPowerOfTwo(7) == 3;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+
+=head2 numberWithCommas($n)
+
+Place commas in a number.
+
+     Parameter  Description
+  1  $n         Number to add commas to
+
+B<Example:>
+
+
+
+    is_deeply numberWithCommas(1),                 q(1);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+    is_deeply numberWithCommas(12345678), q(12,345,678);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+
+=head2 divideIntegersIntoRanges(@s)
+
+Divide an array of integers into ranges.
+
+     Parameter  Description
+  1  @s         Integers to be divided into ranges
+
+B<Example:>
+
+
+
+  is_deeply [divideIntegersIntoRanges   1, 3, 4, 5, 7, 8, 10], [[1], [3..5], [7..8], [10]];    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+
+=head2 divideCharactersIntoRanges($s)
+
+Divide a string of characters into ranges.
+
+     Parameter  Description
+  1  $s         String
+
+B<Example:>
+
+
+
+  is_deeply [divideCharactersIntoRanges "jahiefcb"], [qw(abc ef hij)];                         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
 
 =head2 Minima and Maxima
 
@@ -12077,14 +12088,14 @@ B<Example:>
     ok !max;
     ok max(1) == 1;
     ok max(1,4,2,3) == 4;
-  
-  
+
+
     ok min(1) == 1;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok min(5,4,2,3) == 2;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 indexOfMin(@m)
 
@@ -12096,10 +12107,10 @@ Find the index of the minimum number in a list of numbers confessing to any ill 
 B<Example:>
 
 
-  
+
     ok indexOfMin(qw(2 3 1 2)) == 2;                                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 max(@m)
 
@@ -12111,19 +12122,19 @@ Find the maximum number in a list of numbers confessing to any ill defined value
 B<Example:>
 
 
-  
+
     ok !max;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok max(1) == 1;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok max(1,4,2,3) == 4;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok min(1) == 1;
     ok min(5,4,2,3) == 2;
-  
+
 
 =head3 indexOfMax(@m)
 
@@ -12135,10 +12146,10 @@ Find the index of the maximum number in a list of numbers confessing to any ill 
 B<Example:>
 
 
-  
+
    {ok indexOfMax(qw(2 3 1 2)) == 1;                                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 arraySum(@a)
 
@@ -12150,10 +12161,10 @@ Find the sum of any strings that look like numbers in an array.
 B<Example:>
 
 
-  
+
    {ok arraySum   (1..10) ==  55;                                                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 arrayProduct(@a)
 
@@ -12165,10 +12176,10 @@ Find the product of any strings that look like numbers in an array.
 B<Example:>
 
 
-  
+
     ok arrayProduct(1..5) == 120;                                                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head3 arrayTimes($multiplier, @a)
 
@@ -12181,10 +12192,10 @@ Multiply by B<$multiplier> each element of the array B<@a> and return as the res
 B<Example:>
 
 
-  
+
     is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];                               # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head1 Sets
 
@@ -12192,7 +12203,7 @@ Set operations.
 
 =head2 mergeHashesBySummingValues(@h)
 
-Merge a list of hashes B<@h> by summing their values
+Merge a list of hashes B<@h> by summing their values.
 
      Parameter  Description
   1  @h         List of hashes to be summed
@@ -12201,15 +12212,15 @@ B<Example:>
 
 
     is_deeply +{a=>1, b=>2, c=>3},
-  
+
       mergeHashesBySummingValues  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
         +{a=>1,b=>1, c=>1}, +{b=>1,c=>1}, +{c=>1};
-  
+
 
 =head2 invertHashOfHashes($h)
 
-Invert a hash of hashes: given {a}{b} = c return {b}{c} = c
+Invert a hash of hashes: given {a}{b} = c return {b}{c} = c.
 
      Parameter  Description
   1  $h         Hash of hashes
@@ -12219,14 +12230,14 @@ B<Example:>
 
     my $h =  {a=>{A=>q(aA), B=>q(aB)}, b=>{A=>q(bA), B=>q(bB)}};
     my $g =  {A=>{a=>q(aA), b=>q(bA)}, B=>{a=>q(aB), b=>q(bB)}};
-  
-  
+
+
     is_deeply invertHashOfHashes($h), $g;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply invertHashOfHashes($g), $h;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 unionOfHashKeys(@h)
 
@@ -12238,18 +12249,18 @@ Form the union of the keys of the specified hashes B<@h> as one hash whose keys 
 B<Example:>
 
 
-  if (1)                                                                           
-  
+  if (1)
+
    {is_deeply  unionOfHashKeys  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ({a=>1,b=>2}, {b=>1,c=>1}, {c=>2}),
       {a=>1, b=>2, c=>2};
-  
+
     is_deeply  intersectionOfHashKeys
      ({a=>1,b=>2},{b=>1,c=>1},{b=>3,c=>2}),
       {b=>1};
    }
-  
+
 
 =head2 intersectionOfHashKeys(@h)
 
@@ -12261,22 +12272,22 @@ Form the intersection of the keys of the specified hashes B<@h> as one hash whos
 B<Example:>
 
 
-  if (1)                                                                           
+  if (1)
    {is_deeply  unionOfHashKeys
      ({a=>1,b=>2}, {b=>1,c=>1}, {c=>2}),
       {a=>1, b=>2, c=>2};
-  
-  
+
+
     is_deeply  intersectionOfHashKeys  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ({a=>1,b=>2},{b=>1,c=>1},{b=>3,c=>2}),
       {b=>1};
    }
-  
+
 
 =head2 unionOfHashesAsArrays(@h)
 
-Form the union of the specified hashes B<@h> as one hash whose values are a array of corresponding values from each hash
+Form the union of the specified hashes B<@h> as one hash whose values are a array of corresponding values from each hash.
 
      Parameter  Description
   1  @h         List of hashes to be united
@@ -12284,22 +12295,22 @@ Form the union of the specified hashes B<@h> as one hash whose values are a arra
 B<Example:>
 
 
-  if (1)                                                                           
-  
+  if (1)
+
    {is_deeply  unionOfHashesAsArrays  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ({a=>1,b=>2}, {b=>1,c=>1}, {c=>2}),
       {a=>[1], b=>[2,1], c=>[undef,1,2]};
-  
+
     is_deeply  intersectionOfHashesAsArrays
      ({a=>1,b=>2},{b=>1,c=>1},{b=>3,c=>2}),
       {b=>[2,1,3]};
    }
-  
+
 
 =head2 intersectionOfHashesAsArrays(@h)
 
-Form the intersection of the specified hashes B<@h> as one hash whose values are an array of corresponding values from each hash
+Form the intersection of the specified hashes B<@h> as one hash whose values are an array of corresponding values from each hash.
 
      Parameter  Description
   1  @h         List of hashes to be intersected
@@ -12307,22 +12318,22 @@ Form the intersection of the specified hashes B<@h> as one hash whose values are
 B<Example:>
 
 
-  if (1)                                                                           
+  if (1)
    {is_deeply  unionOfHashesAsArrays
      ({a=>1,b=>2}, {b=>1,c=>1}, {c=>2}),
       {a=>[1], b=>[2,1], c=>[undef,1,2]};
-  
-  
+
+
     is_deeply  intersectionOfHashesAsArrays  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ({a=>1,b=>2},{b=>1,c=>1},{b=>3,c=>2}),
       {b=>[2,1,3]};
    }
-  
+
 
 =head2 setUnion(@s)
 
-Union of sets B<@s> represented as arrays of strings and/or the keys of hashes
+Union of sets B<@s> represented as arrays of strings and/or the keys of hashes.
 
      Parameter  Description
   1  @s         Array of arrays of strings and/or hashes
@@ -12330,17 +12341,17 @@ Union of sets B<@s> represented as arrays of strings and/or the keys of hashes
 B<Example:>
 
 
-  
+
     is_deeply [qw(a b c)],     [setUnion(qw(a b c a a b b b))];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [qw(a b c d e)], [setUnion {a=>1, b=>2, e=>3}, [qw(c d e)], qw(e)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 setIntersection(@s)
 
-Intersection of sets B<@s> represented as arrays of strings and/or the keys of hashes
+Intersection of sets B<@s> represented as arrays of strings and/or the keys of hashes.
 
      Parameter  Description
   1  @s         Array of arrays of strings and/or hashes
@@ -12348,17 +12359,17 @@ Intersection of sets B<@s> represented as arrays of strings and/or the keys of h
 B<Example:>
 
 
-  
+
     is_deeply [qw(a b c)], [setIntersection[qw(e f g a b c )],[qw(a A b B c C)]];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [qw(e)],   [setIntersection {a=>1, b=>2, e=>3}, [qw(c d e)], qw(e)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 setIntersectionOverUnion(@s)
 
-Returns the size of the intersection over the size of the union of one or more sets B<@s> represented as arrays and/or hashes
+Returns the size of the intersection over the size of the union of one or more sets B<@s> represented as arrays and/or hashes.
 
      Parameter  Description
   1  @s         Array of arrays of strings and/or hashes
@@ -12366,15 +12377,15 @@ Returns the size of the intersection over the size of the union of one or more s
 B<Example:>
 
 
-  
+
     my $f = setIntersectionOverUnion {a=>1, b=>2, e=>3}, [qw(c d e)], qw(e);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $f > 0.199999 && $f < 0.200001;
-  
+
 
 =head2 setPartitionOnIntersectionOverUnion($confidence, @sets)
 
-Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets in the partition is never less than the specified level of I<$confidence**2>
+Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets in the partition is never less than the specified level of I<$confidence**2>.
 
      Parameter    Description
   1  $confidence  Minimum setIntersectionOverUnion
@@ -12383,7 +12394,7 @@ Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> 
 B<Example:>
 
 
-  
+
     is_deeply [setPartitionOnIntersectionOverUnion  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      (0.80,
@@ -12396,11 +12407,11 @@ B<Example:>
      [["A".."C", "a".."d"]],
     ];
   }
-  
-  
-  
-  
-  if (1) {                                                                        
+
+
+
+
+  if (1) {
   is_deeply [setPartitionOnIntersectionOverUnionOfSetsOfWords
      (0.80,
        [qw(a A   b c d e)],
@@ -12410,11 +12421,11 @@ B<Example:>
    [[["a", "A", "B", "C", "b", "c", "d"]],
     [["a", "A", "B", "b" .. "e"], ["a", "A", "b" .. "e"]],
    ];
-  
+
 
 =head2 setPartitionOnIntersectionOverUnionOfSetsOfWords($confidence, @sets)
 
-Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> of words so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets of words in the partition is never less than the specified I<$confidence**2>
+Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> of words so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets of words in the partition is never less than the specified I<$confidence**2>.
 
      Parameter    Description
   1  $confidence  Minimum setIntersectionOverUnion
@@ -12423,7 +12434,7 @@ Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> 
 B<Example:>
 
 
-  
+
   is_deeply [setPartitionOnIntersectionOverUnionOfSetsOfWords  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      (0.80,
@@ -12434,11 +12445,11 @@ B<Example:>
    [[["a", "A", "B", "C", "b", "c", "d"]],
     [["a", "A", "B", "b" .. "e"], ["a", "A", "b" .. "e"]],
    ];
-  
+
 
 =head2 setPartitionOnIntersectionOverUnionOfStringSets($confidence, @strings)
 
-Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@strings>, each set represented by a string containing words and punctuation, each word possibly capitalized, so that within each partition the L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> of any two sets of words in the partition is never less than the specified I<$confidence**2>
+Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@strings>, each set represented by a string containing words and punctuation, each word possibly capitalized, so that within each partition the L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> of any two sets of words in the partition is never less than the specified I<$confidence**2>.
 
      Parameter    Description
   1  $confidence  Minimum setIntersectionOverUnion
@@ -12447,7 +12458,7 @@ Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@string
 B<Example:>
 
 
-  
+
   is_deeply [setPartitionOnIntersectionOverUnionOfStringSets  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      (0.80,
@@ -12459,7 +12470,7 @@ B<Example:>
     ["The Emu, Gnu       are seen here sometimes.",
      "The Emu            are seen here sometimes.",
     ]];
-  
+
 
 =head2 setPartitionOnIntersectionOverUnionOfHashStringSets($confidence, $hashSet)
 
@@ -12472,7 +12483,7 @@ Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<$hashSe
 B<Example:>
 
 
-  
+
     is_deeply [setPartitionOnIntersectionOverUnionOfHashStringSets  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      (0.80,
@@ -12482,7 +12493,7 @@ B<Example:>
        }
      )],
    [["e", "eg"], ["egc"]];
-  
+
 
 =head2 setPartitionOnIntersectionOverUnionOfHashStringSetsInParallel($confidence, $hashSet)
 
@@ -12504,12 +12515,12 @@ B<Example:>
          {push @w, qq($a$b$c);
          }
        }
-  
+
       for   my $i(1..$N)
        {$s{qq($a$i)} = join ' ', @w;
        }
      }
-  
+
     my $expected =
      [["a1" .. "a8"],
       ["b1" .. "b8"],
@@ -12538,10 +12549,10 @@ B<Example:>
       ["y1" .. "y8"],
       ["z1" .. "z8"],
      ];
-  
+
     is_deeply $expected,
      [setPartitionOnIntersectionOverUnionOfHashStringSets          (0.50, \%s)];
-  
+
     my $expectedInParallel =
      ["a1 a2 a3 a4 a5 a6 a7 a8",                                                  # Same strings in multiple parallel processes
       "b1 b2 b3 b4 b5 b6 b7 b8",
@@ -12582,16 +12593,16 @@ B<Example:>
       "y1 y2 y3 y4 y5 y6 y7 y8",
       "z1 z2 z3 z4 z5 z6 z7 z8",
      ];
-  
+
     if (1)
-  
+
      {my @p = setPartitionOnIntersectionOverUnionOfHashStringSetsInParallel  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
        (0.50, \%s);
-  
+
       is_deeply $expectedInParallel, [sort map {join ' ', @$_} @p];
      }
-  
+
 
 =head2 contains($item, @array)
 
@@ -12604,22 +12615,22 @@ Returns the indices at which an B<$item> matches elements of the specified B<@ar
 B<Example:>
 
 
-  
+
   is_deeply [1],       [contains(1,0..1)];                                          # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   is_deeply [1,3],     [contains(1, qw(0 1 0 1 0 0))];                              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   is_deeply [0, 5],    [contains('a', qw(a b c d e a b c d e))];                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   is_deeply [0, 1, 5], [contains(qr(a+), qw(a baa c d e aa b c d e))];              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 countOccurencesInString($inString, $searchFor)
 
@@ -12632,12 +12643,12 @@ Returns the number of occurrences in B<$inString> of B<$searchFor>.
 B<Example:>
 
 
-  if (1)                                                                          
-  
+  if (1)
+
    {ok countOccurencesInString(q(a<b>c<b><b>d), q(<b>)) == 3;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    }
-  
+
 
 =head2 partitionStringsOnPrefixBySize()
 
@@ -12647,11 +12658,11 @@ Partition a hash of strings and associated sizes into partitions with either a m
 B<Example:>
 
 
-  if (1)                                                                          
-  
+  if (1)
+
    {my $ps = \&partitionStringsOnPrefixBySize;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply {&$ps(1)}, {};
     is_deeply {&$ps(1, 1=>0)},      {q()=>0};
     is_deeply {&$ps(1, 1=>1)},      {q()=>1};
@@ -12659,21 +12670,21 @@ B<Example:>
     is_deeply {&$ps(1, 1=>1,2=>1)}, {1=>1,2=>1};
     is_deeply {&$ps(2, 11=>1,12=>1, 21=>1,22=>1)}, {1=>2, 2=>2};
     is_deeply {&$ps(2, 111=>1,112=>1,113=>1, 121=>1,122=>1,123=>1, 131=>1,132=>1,133=>1)}, { 111 => 1, 112 => 1, 113 => 1, 121 => 1, 122 => 1, 123 => 1, 131 => 1, 132 => 1, 133 => 1 };
-  
+
     for(3..8)
      {is_deeply {&$ps($_, 111=>1,112=>1,113=>1, 121=>1,122=>1,123=>1, 131=>1,132=>1,133=>1)}, { 11 => 3, 12 => 3, 13 => 3 };
      }
-  
+
     is_deeply {&$ps(9, 111=>1,112=>1,113=>1, 121=>1,122=>1,123=>1, 131=>1,132=>1,133=>1)}, { q()=> 9};
     is_deeply {&$ps(3, 111=>1,112=>1,113=>1, 121=>1,122=>1,123=>1, 131=>1,132=>1,133=>2)}, { 11 => 3, 12 => 3, 131 => 1, 132 => 1, 133 => 2 };
     is_deeply {&$ps(4, 111=>1,112=>1,113=>1, 121=>1,122=>1,123=>1, 131=>1,132=>1,133=>2)}, { 11 => 3, 12 => 3, 13 => 4 };
-  
+
    }
-  
+
 
 =head2 transitiveClosure($h)
 
-Transitive closure of a hash of hashes
+Transitive closure of a hash of hashes.
 
      Parameter  Description
   1  $h         Hash of hashes
@@ -12681,15 +12692,15 @@ Transitive closure of a hash of hashes
 B<Example:>
 
 
-  if (1)                                                                          
-  
+  if (1)
+
    {is_deeply transitiveClosure({a=>{b=>1, c=>2}, b=>{d=>3}, c=>{d=>4}}),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      {end => [{ b => 1, c => 1, d => 4 }, { d => 1 }],
       start => { a => 0, b => 1, c => 1 },
      };
    }
-  
+
 
 =head1 Format
 
@@ -12705,14 +12716,14 @@ Find the longest line in a B<$string>.
 B<Example:>
 
 
-  
+
   ok 3 == maximumLineLength(<<END);                                                 # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   a
   bb
   ccc
   END
-  
+
 
 =head2 formatTableBasic($data)
 
@@ -12725,7 +12736,7 @@ B<Example:>
 
 
     my $d = [[qw(a 1)], [qw(bb 22)], [qw(ccc 333)], [qw(dddd 4444)]];
-  
+
     ok formatTableBasic($d) eq <<END, q(ftb);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   a        1
@@ -12734,19 +12745,19 @@ B<Example:>
   dddd  4444
   END
     }
-  
-  if (0) {                                                                         
+
+  if (0) {
     my %pids;
     sub{startProcess {} %pids, 1; ok 1 >= keys %pids}->() for 1..8;
     waitForAllStartedProcessesToFinish(%pids);
     ok !keys(%pids)
-  
+
 
 =head2 formatTable($data, $columnTitles, @options)
 
 Format various B<$data> structures as a table with titles as specified by B<$columnTitles>: either a reference to an array of column titles or a string each line of which contains the column title as the first word with the rest of the line describing that column.
 
-Optionally create a report from the table using the report B<%options> described in L<formatTableCheckKeys>
+Optionally create a report from the table using the report B<%options> described in L<formatTableCheckKeys>.
 
      Parameter      Description
   1  $data          Data to be formatted
@@ -12756,19 +12767,19 @@ Optionally create a report from the table using the report B<%options> described
 B<Example:>
 
 
-  
+
   ok formatTable                                                                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-   ([[qw(A    B    C    D   )],                                                   
-  
-     [qw(AA   BB   CC   DD  )],                                                   
-  
-     [qw(AAA  BBB  CCC  DDD )],                                                   
-  
-     [qw(AAAA BBBB CCCC DDDD)],                                                   
-  
-     [qw(1    22   333  4444)]], [qw(aa bb cc)]) eq <<END;   
+
+   ([[qw(A    B    C    D   )],
+
+     [qw(AA   BB   CC   DD  )],
+
+     [qw(AAA  BBB  CCC  DDD )],
+
+     [qw(AAAA BBBB CCCC DDDD)],
+
+     [qw(1    22   333  4444)]], [qw(aa bb cc)]) eq <<END;
      aa    bb    cc
   1  A     B     C     D
   2  AA    BB    CC    DD
@@ -12776,84 +12787,84 @@ B<Example:>
   4  AAAA  BBBB  CCCC  DDDD
   5     1    22   333  4444
   END
-  
-  
+
+
   ok formatTable                                                                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-   ([[qw(1     B   C)],                                                           
-  
-     [qw(22    BB  CC)],                                                          
-  
-     [qw(333   BBB CCC)],                                                         
-  
-     [qw(4444  22  333)]], [qw(aa bb cc)]) eq <<END;         
+
+   ([[qw(1     B   C)],
+
+     [qw(22    BB  CC)],
+
+     [qw(333   BBB CCC)],
+
+     [qw(4444  22  333)]], [qw(aa bb cc)]) eq <<END;
      aa    bb   cc
   1     1  B    C
   2    22  BB   CC
   3   333  BBB  CCC
   4  4444   22  333
   END
-  
-  
+
+
   ok formatTable                                                                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-   ([{aa=>'A',   bb=>'B',   cc=>'C'},                                             
-  
-     {aa=>'AA',  bb=>'BB',  cc=>'CC'},                                            
-  
-     {aa=>'AAA', bb=>'BBB', cc=>'CCC'},                                           
-  
-     {aa=>'1',   bb=>'22',  cc=>'333'}                                            
-  
-     ]) eq <<END;                                                                 
+
+   ([{aa=>'A',   bb=>'B',   cc=>'C'},
+
+     {aa=>'AA',  bb=>'BB',  cc=>'CC'},
+
+     {aa=>'AAA', bb=>'BBB', cc=>'CCC'},
+
+     {aa=>'1',   bb=>'22',  cc=>'333'}
+
+     ]) eq <<END;
      aa   bb   cc
   1  A    B    C
   2  AA   BB   CC
   3  AAA  BBB  CCC
   4    1   22  333
   END
-  
-  
+
+
   ok formatTable                                                                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-   ({''=>[qw(aa bb cc)],                                                          
-  
-      1=>[qw(A B C)],                                                             
-  
-      22=>[qw(AA BB CC)],                                                         
-  
-      333=>[qw(AAA BBB CCC)],                                                     
-  
-      4444=>[qw(1 22 333)]}) eq <<END;                                            
+
+   ({''=>[qw(aa bb cc)],
+
+      1=>[qw(A B C)],
+
+      22=>[qw(AA BB CC)],
+
+      333=>[qw(AAA BBB CCC)],
+
+      4444=>[qw(1 22 333)]}) eq <<END;
         aa   bb   cc
      1  A    B    C
     22  AA   BB   CC
    333  AAA  BBB  CCC
   4444    1   22  333
   END
-  
-  
+
+
   ok formatTable                                                                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-   ({1=>{aa=>'A', bb=>'B', cc=>'C'},                                              
-  
-     22=>{aa=>'AA', bb=>'BB', cc=>'CC'},                                          
-  
-     333=>{aa=>'AAA', bb=>'BBB', cc=>'CCC'},                                      
-  
-     4444=>{aa=>'1', bb=>'22', cc=>'333'}}) eq <<END;                             
+
+   ({1=>{aa=>'A', bb=>'B', cc=>'C'},
+
+     22=>{aa=>'AA', bb=>'BB', cc=>'CC'},
+
+     333=>{aa=>'AAA', bb=>'BBB', cc=>'CCC'},
+
+     4444=>{aa=>'1', bb=>'22', cc=>'333'}}) eq <<END;
         aa   bb   cc
      1  A    B    C
     22  AA   BB   CC
    333  AAA  BBB  CCC
   4444    1   22  333
   END
-  
-  
+
+
   ok formatTable({aa=>'A', bb=>'B', cc=>'C'}, [qw(aaaa bbbb)]) eq <<END;            # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   aaaa  bbbb
@@ -12861,10 +12872,10 @@ B<Example:>
   bb    B
   cc    C
   END
-  
+
     my $d = temporaryFolder;
     my $f = fpe($d, qw(report txt));                                              # Create a report
-  
+
     my $t = formatTable  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ([["a",undef], [undef, "b0ac"]],                                           # Data - please replace 0a with a new line
@@ -12872,30 +12883,30 @@ B<Example:>
       file=>$f,                                                                   # Output file
       head=><<END);                                                               # Header
   Sample report.
-  
+
   Table has NNNN rows.
   END
     ok -e $f;
-  
+
     ok readFile($f) eq $t;
     is_deeply nws($t), nws(<<END);
   Sample report.
-  
+
   Table has 2 rows.
-  
+
   This file: ${d}report.txt
-  
+
         BC
   1  a
   2     b
         c
   END
     clearFolder($d, 2);
-  
+
 
 =head2 formattedTablesReport(@options)
 
-Report of all the reports created. The optional parameters are the same as for L<formatTable|/formatTable>
+Report of all the reports created. The optional parameters are the same as for L<formatTable|/formatTable>.
 
      Parameter  Description
   1  @options   Options
@@ -12904,13 +12915,13 @@ B<Example:>
 
 
     @formatTables = ();
-  
+
     for my $m(2..8)
      {formatTable([map {[$_, $_*$m]} 1..$m], [q(Single), qq(* $m)],
         title=>qq(Multiply by $m));
      }
-  
-  
+
+
     ok nws(formattedTablesReport) eq nws(<<END);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      Rows  Title          File
@@ -12922,7 +12933,7 @@ B<Example:>
   6     7  Multiply by 7
   7     8  Multiply by 8
   END
-  
+
 
 =head2 summarizeColumn($data, $column)
 
@@ -12936,19 +12947,19 @@ B<Example:>
 
 
     is_deeply
-  
+
      [summarizeColumn([map {[$_]} qw(A B D B C D C D A C D C B B D)], 0)],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      [[5, "D"], [4, "B"], [4, "C"], [2, "A"]];
-  
+
     ok nws(formatTable
      ([map {[split m//, $_]} qw(AA CB CD BC DC DD CD AD AA DC CD CC BB BB BD)],
       [qw(Col-1 Col-2)],
        summarize=>1)) eq nws(<<'END');
-  
+
   Summary_of_column                - Count of unique values found in each column                     Use the Geany flick capability by placing your cursor on the first word
   Comma_Separated_Values_of_column - Comma separated list of the unique values found in each column  of these lines and pressing control + down arrow to see each sub report.
-  
+
       Col-1  Col-2
    1  A      A
    2  C      B
@@ -12965,26 +12976,26 @@ B<Example:>
   13  B      B
   14  B      B
   15  B      D
-  
+
   Summary_of_column_Col-1
      Count  Col-1
   1      5  C
   2      4  B
   3      3  A
   4      3  D
-  
+
   Comma_Separated_Values_of_column_Col-1: "A","B","C","D"
-  
+
   Summary_of_column_Col-2
      Count  Col-2
   1      6  D
   2      4  C
   3      3  B
   4      2  A
-  
+
   Comma_Separated_Values_of_column_Col-2: "A","B","C","D"
   END
-  
+
 
 =head2 keyCount($maxDepth, $ref)
 
@@ -12997,18 +13008,18 @@ Count keys down to the specified level.
 B<Example:>
 
 
-    my $a = [[1..3],       {map{$_=>1} 1..3}];                                    
-  
-    my $h = {a=>[1..3], b=>{map{$_=>1} 1..3}};                                    
-  
-  
+    my $a = [[1..3],       {map{$_=>1} 1..3}];
+
+    my $h = {a=>[1..3], b=>{map{$_=>1} 1..3}};
+
+
     ok keyCount(2, $a) == 6;                                                        # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
     ok keyCount(2, $h) == 6;                                                        # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 formatHtmlTable($data, %options)
 
@@ -13021,8 +13032,8 @@ Format an array of arrays of scalars as an html table using the  B<%options> des
 B<Example:>
 
 
-  if (1)                                                                          
-  
+  if (1)
+
    {my $t = formatHtmlTable  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ([
@@ -13037,27 +13048,27 @@ B<Example:>
   target The target letter
   END
      );
-  
+
     my $T = <<'END';
   <h1>Sample html table</h1>
-  
+
   <p>Head 2 rows</p>
-  
+
   <p><table borders="0" cellpadding="10" cellspacing="5">
-  
+
   <tr><th><span title="The source number">source</span><th><span title="The target letter">target</span>
   <tr><td>1<td>a
   <tr><td>2<td>b
   </table></p>
-  
+
   <p><pre>
   source  The source number
   target  The target letter
-  
+
   </pre></p>
-  
+
   <p>Footer</p>
-  
+
   <span class="options" style="display: none">{
     columns => "source The source number
 target The target letter
@@ -13068,11 +13079,11 @@ target The target letter
     title   => "Sample html table",
   }</span>
   END
-  
+
     ok "$t
 " eq $T;
    }
-  
+
 
 =head2 formatHtmlTablesIndex($reports, $title, $url, $columns)
 
@@ -13087,9 +13098,9 @@ Create an index of html reports.
 B<Example:>
 
 
-  if (1)                                                                            
+  if (1)
    {my $reports = temporaryFolder;
-  
+
     formatHtmlAndTextTables
      ($reports, $reports, q(/cgi-bin/getFile.pl?), q(/a/),
        [[qw(1 /a/a)],
@@ -13105,7 +13116,7 @@ B<Example:>
   target The target letter
   END
      );
-  
+
     formatHtmlAndTextTables
      ($reports, $reports, q(/cgi-bin/getFile.pl?file=), q(/a/),
        [[qw(1 /a/a1)],
@@ -13122,32 +13133,32 @@ B<Example:>
   target The target letter
   END
      );
-  
+
     formatHtmlAndTextTablesWaitPids;
-  
-  
+
+
     my $result = formatHtmlTablesIndex($reports, q(TITLE), q(/cgi-bin/getFile.pl?file=));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $result =~ m(3.*Good files);
     ok $result =~ m(2.*Bad files);
   #  ok $result =~ m(green.*>3<.*>Good files);
   #  ok $result =~ m(red.*>2<.*>Bad files);
-  
+
     clearFolder($reports, 11);
    }
-  
+
 
 =head2 formatHtmlAndTextTablesWaitPids()
 
-Wait on all table formatting pids to complete
+Wait on all table formatting pids to complete.
 
 
 B<Example:>
 
 
-  if (1)                                                                            
+  if (1)
    {my $reports = temporaryFolder;
-  
+
     formatHtmlAndTextTables
      ($reports, $reports, q(/cgi-bin/getFile.pl?), q(/a/),
        [[qw(1 /a/a)],
@@ -13163,7 +13174,7 @@ B<Example:>
   target The target letter
   END
      );
-  
+
     formatHtmlAndTextTables
      ($reports, $reports, q(/cgi-bin/getFile.pl?file=), q(/a/),
        [[qw(1 /a/a1)],
@@ -13180,24 +13191,24 @@ B<Example:>
   target The target letter
   END
      );
-  
-  
+
+
     formatHtmlAndTextTablesWaitPids;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     my $result = formatHtmlTablesIndex($reports, q(TITLE), q(/cgi-bin/getFile.pl?file=));
     ok $result =~ m(3.*Good files);
     ok $result =~ m(2.*Bad files);
   #  ok $result =~ m(green.*>3<.*>Good files);
   #  ok $result =~ m(red.*>2<.*>Bad files);
-  
+
     clearFolder($reports, 11);
    }
-  
+
 
 =head2 formatHtmlAndTextTables($reports, $html, $getFile, $filePrefix, $data, %options)
 
-Create text and html versions of a tabular report
+Create text and html versions of a tabular report.
 
      Parameter    Description
   1  $reports     Folder to contain text reports
@@ -13210,10 +13221,10 @@ Create text and html versions of a tabular report
 B<Example:>
 
 
-  if (1)                                                                            
+  if (1)
    {my $reports = temporaryFolder;
-  
-  
+
+
     formatHtmlAndTextTables  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ($reports, $reports, q(/cgi-bin/getFile.pl?), q(/a/),
@@ -13230,8 +13241,8 @@ B<Example:>
   target The target letter
   END
      );
-  
-  
+
+
     formatHtmlAndTextTables  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ($reports, $reports, q(/cgi-bin/getFile.pl?file=), q(/a/),
@@ -13249,18 +13260,18 @@ B<Example:>
   target The target letter
   END
      );
-  
+
     formatHtmlAndTextTablesWaitPids;
-  
+
     my $result = formatHtmlTablesIndex($reports, q(TITLE), q(/cgi-bin/getFile.pl?file=));
     ok $result =~ m(3.*Good files);
     ok $result =~ m(2.*Bad files);
   #  ok $result =~ m(green.*>3<.*>Good files);
   #  ok $result =~ m(red.*>2<.*>Bad files);
-  
+
     clearFolder($reports, 11);
    }
-  
+
 
 =head1 Lines
 
@@ -13276,20 +13287,20 @@ Load an array from lines of text in a string.
 B<Example:>
 
 
-  
+
     my $s = loadArrayFromLines <<END;                                               # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   a a
   b b
   END
-  
-    is_deeply $s, [q(a a), q(b b)];                                               
-  
-    ok formatTable($s) eq <<END;                             
+
+    is_deeply $s, [q(a a), q(b b)];
+
+    ok formatTable($s) eq <<END;
   0  a a
   1  b b
   END
-  
+
 
 =head2 loadHashFromLines($string)
 
@@ -13301,20 +13312,20 @@ Load a hash: first word of each line is the key and the rest is the value.
 B<Example:>
 
 
-  
+
     my $s = loadHashFromLines <<END;                                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   a 10 11 12
   b 20 21 22
   END
-  
-    is_deeply $s, {a => q(10 11 12), b =>q(20 21 22)};                            
-  
-    ok formatTable($s) eq <<END;                             
+
+    is_deeply $s, {a => q(10 11 12), b =>q(20 21 22)};
+
+    ok formatTable($s) eq <<END;
   a  10 11 12
   b  20 21 22
   END
-  
+
 
 =head2 loadArrayArrayFromLines($string)
 
@@ -13326,20 +13337,20 @@ Load an array of arrays from lines of text: each line is an array of words.
 B<Example:>
 
 
-  
+
     my $s = loadArrayArrayFromLines <<END;                                          # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   A B C
   AA BB CC
   END
-  
-    is_deeply $s, [[qw(A B C)], [qw(AA BB CC)]];                                  
-  
-    ok formatTable($s) eq <<END;                             
+
+    is_deeply $s, [[qw(A B C)], [qw(AA BB CC)]];
+
+    ok formatTable($s) eq <<END;
   1  A   B   C
   2  AA  BB  CC
   END
-  
+
 
 =head2 loadHashArrayFromLines($string)
 
@@ -13351,20 +13362,20 @@ Load a hash of arrays from lines of text: the first word of each line is the key
 B<Example:>
 
 
-  
+
     my $s = loadHashArrayFromLines <<END;                                           # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   a A B C
   b AA BB CC
   END
-  
-    is_deeply $s, {a =>[qw(A B C)], b => [qw(AA BB CC)] };                        
-  
-    ok formatTable($s) eq <<END;                             
+
+    is_deeply $s, {a =>[qw(A B C)], b => [qw(AA BB CC)] };
+
+    ok formatTable($s) eq <<END;
   a  A   B   C
   b  AA  BB  CC
   END
-  
+
 
 =head2 loadArrayHashFromLines($string)
 
@@ -13376,21 +13387,21 @@ Load an array of hashes from lines of text: each line is a hash of words.
 B<Example:>
 
 
-  
+
     my $s = loadArrayHashFromLines <<END;                                           # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   A 1 B 2
   AA 11 BB 22
   END
-  
-    is_deeply $s, [{A=>1, B=>2}, {AA=>11, BB=>22}];                               
-  
-    ok formatTable($s) eq <<END;                             
+
+    is_deeply $s, [{A=>1, B=>2}, {AA=>11, BB=>22}];
+
+    ok formatTable($s) eq <<END;
      A  AA  B  BB
   1  1      2
   2     11     22
   END
-  
+
 
 =head2 loadHashHashFromLines($string)
 
@@ -13402,21 +13413,21 @@ Load a hash of hashes from lines of text: the first word of each line is the key
 B<Example:>
 
 
-  
+
     my $s = loadHashHashFromLines <<END;                                            # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   a A 1 B 2
   b AA 11 BB 22
   END
-  
-    is_deeply $s, {a=>{A=>1, B=>2}, b=>{AA=>11, BB=>22}};                         
-  
-    ok formatTable($s) eq <<END;                             
+
+    is_deeply $s, {a=>{A=>1, B=>2}, b=>{AA=>11, BB=>22}};
+
+    ok formatTable($s) eq <<END;
      A  AA  B  BB
   a  1      2
   b     11     22
   END
-  
+
 
 =head2 checkKeys($hash, $permitted)
 
@@ -13429,12 +13440,12 @@ Check the keys in a B<hash> confirm to those B<$permitted>.
 B<Example:>
 
 
-  
+
     eval q{checkKeys({a=>1, b=>2, d=>3}, {a=>1, b=>2, c=>3})};                      # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-    ok nws($@) =~ m(\AInvalid options chosen: d Permitted.+?: a 1 b 2 c 3);       
-  
+
+    ok nws($@) =~ m(\AInvalid options chosen: d Permitted.+?: a 1 b 2 c 3);
+
 
 =head1 LVALUE methods
 
@@ -13450,26 +13461,26 @@ Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines
 B<Example:>
 
 
-    package Scalars;                                                              
-  
-    my $a = bless{};                                                              
-  
-  
+    package Scalars;
+
+    my $a = bless{};
+
+
     Data::Table::Text::genLValueScalarMethods(qw(aa bb cc));                        # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-    $a->aa = 'aa';                                                                
-  
-    Test::More::ok  $a->aa eq 'aa';                                               
-  
-    Test::More::ok !$a->bb;                                                       
-  
-    Test::More::ok  $a->bbX eq q();                                               
-  
-    $a->aa = undef;                                                               
-  
-    Test::More::ok !$a->aa;                                                       
-  
+
+    $a->aa = 'aa';
+
+    Test::More::ok  $a->aa eq 'aa';
+
+    Test::More::ok !$a->bb;
+
+    Test::More::ok  $a->bbX eq q();
+
+    $a->aa = undef;
+
+    Test::More::ok !$a->aa;
+
 
 =head2 addLValueScalarMethods(@names)
 
@@ -13481,26 +13492,26 @@ Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines
 B<Example:>
 
 
-    my $class = "Data::Table::Text::Test";                                        
-  
-    my $a = bless{}, $class;                                                      
-  
-  
+    my $class = "Data::Table::Text::Test";
+
+    my $a = bless{}, $class;
+
+
     addLValueScalarMethods(qq(${class}::$_)) for qw(aa bb aa bb);                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-    $a->aa = 'aa';                                                                
-  
-    ok  $a->aa eq 'aa';                                                           
-  
-    ok !$a->bb;                                                                   
-  
-    ok  $a->bbX eq q();                                                           
-  
-    $a->aa = undef;                                                               
-  
-    ok !$a->aa;                                                                   
-  
+
+    $a->aa = 'aa';
+
+    ok  $a->aa eq 'aa';
+
+    ok !$a->bb;
+
+    ok  $a->bbX eq q();
+
+    $a->aa = undef;
+
+    ok !$a->aa;
+
 
 =head2 genLValueScalarMethodsWithDefaultValues(@names)
 
@@ -13512,16 +13523,16 @@ Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines
 B<Example:>
 
 
-    package ScalarsWithDefaults;                                                  
-  
-    my $a = bless{};                                                              
-  
-  
+    package ScalarsWithDefaults;
+
+    my $a = bless{};
+
+
     Data::Table::Text::genLValueScalarMethodsWithDefaultValues(qw(aa bb cc));       # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-    Test::More::ok $a->aa eq 'aa';                                                
-  
+
+    Test::More::ok $a->aa eq 'aa';
+
 
 =head2 genLValueArrayMethods(@names)
 
@@ -13533,18 +13544,18 @@ Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines
 B<Example:>
 
 
-    package Arrays;                                                               
-  
-    my $a = bless{};                                                              
-  
-  
+    package Arrays;
+
+    my $a = bless{};
+
+
     Data::Table::Text::genLValueArrayMethods(qw(aa bb cc));                         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-    $a->aa->[1] = 'aa';                                                           
-  
-    Test::More::ok $a->aa->[1] eq 'aa';                                           
-  
+
+    $a->aa->[1] = 'aa';
+
+    Test::More::ok $a->aa->[1] eq 'aa';
+
 
 =head2 genLValueHashMethods(@names)
 
@@ -13556,18 +13567,18 @@ Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines
 B<Example:>
 
 
-    package Hashes;                                                               
-  
-    my $a = bless{};                                                              
-  
-  
+    package Hashes;
+
+    my $a = bless{};
+
+
     Data::Table::Text::genLValueHashMethods(qw(aa bb cc));                          # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-    $a->aa->{a} = 'aa';                                                           
-  
-    Test::More::ok $a->aa->{a} eq 'aa';                                           
-  
+
+    $a->aa->{a} = 'aa';
+
+    Test::More::ok $a->aa->{a} eq 'aa';
+
 
 =head2 genHash($bless, %attributes)
 
@@ -13580,7 +13591,7 @@ Return a B<$bless>ed hash with the specified B<$attributes> accessible via L<lva
 B<Example:>
 
 
-  
+
     my $o = genHash(q(TestHash),                                                  # Definition of a blessed hash.  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
         a=>q(aa),                                                                 # Definition of attribute aa.
@@ -13588,7 +13599,7 @@ B<Example:>
        );
     ok $o->a eq q(aa);
     is_deeply $o, {a=>"aa", b=>"bb"};
-  
+
     my $p = genHash(q(TestHash),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       c=>q(cc),                                                                   # Definition of attribute cc.
@@ -13597,13 +13608,13 @@ B<Example:>
     ok $p->a =  q(aa);
     ok $p->a eq q(aa);
     is_deeply $p, {a=>"aa", c=>"cc"};
-  
+
     loadHash($p, a=>11, b=>22);                                                   # Load the hash
     is_deeply $p, {a=>11, b=>22, c=>"cc"};
-  
+
     my $r = eval {loadHash($p, d=>44)};                                           # Try to load the hash
     ok $@ =~ m(Cannot load attribute: d);
-  
+
 
 =head2 loadHash($hash, %attributes)
 
@@ -13629,17 +13640,17 @@ B<Example:>
     ok $p->a =  q(aa);
     ok $p->a eq q(aa);
     is_deeply $p, {a=>"aa", c=>"cc"};
-  
-  
+
+
     loadHash($p, a=>11, b=>22);                                                   # Load the hash  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply $p, {a=>11, b=>22, c=>"cc"};
-  
-  
+
+
     my $r = eval {loadHash($p, d=>44)};                                           # Try to load the hash  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $@ =~ m(Cannot load attribute: d);
-  
+
 
 =head2 reloadHashes($d)
 
@@ -13651,26 +13662,26 @@ Ensures that all the hashes within a tower of data structures have LValue method
 B<Example:>
 
 
-  if (1)                                                                          
+  if (1)
    {my $a = bless [bless {aaa=>42}, "AAAA"], "BBBB";
     eval {$a->[0]->aaa};
     ok $@ =~ m(\ACan.t locate object method .aaa. via package .AAAA.);
-  
+
     reloadHashes($a);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $a->[0]->aaa == 42;
    }
-  
-  if (1)                                                                          
+
+  if (1)
    {my $a = bless [bless {ccc=>42}, "CCCC"], "DDDD";
     eval {$a->[0]->ccc};
     ok $@ =~ m(\ACan.t locate object method .ccc. via package .CCCC.);
-  
+
     reloadHashes($a);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $a->[0]->ccc == 42;
    }
-  
+
 
 =head2 setPackageSearchOrder($set, @search)
 
@@ -13683,60 +13694,60 @@ Set a package search order for methods requested in the current package via AUTO
 B<Example:>
 
 
-  if (1)                                                                          
+  if (1)
    {if (1)
      {package AAAA;
-  
+
       sub aaaa{q(AAAAaaaa)}
       sub bbbb{q(AAAAbbbb)}
       sub cccc{q(AAAAcccc)}
      }
     if (1)
      {package BBBB;
-  
+
       sub aaaa{q(BBBBaaaa)}
       sub bbbb{q(BBBBbbbb)}
       sub dddd{q(BBBBdddd)}
      }
     if (1)
      {package CCCC;
-  
+
       sub aaaa{q(CCCCaaaa)}
       sub dddd{q(CCCCdddd)}
       sub eeee{q(CCCCeeee)}
      }
-  
-  
+
+
     setPackageSearchOrder(__PACKAGE__, qw(CCCC BBBB AAAA));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok &aaaa eq q(CCCCaaaa);
     ok &bbbb eq q(BBBBbbbb);
     ok &cccc eq q(AAAAcccc);
-  
+
     ok &aaaa eq q(CCCCaaaa);
     ok &bbbb eq q(BBBBbbbb);
     ok &cccc eq q(AAAAcccc);
-  
+
     ok &dddd eq q(CCCCdddd);
     ok &eeee eq q(CCCCeeee);
-  
-  
+
+
     setPackageSearchOrder(__PACKAGE__, qw(AAAA BBBB CCCC));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok &aaaa eq q(AAAAaaaa);
     ok &bbbb eq q(AAAAbbbb);
     ok &cccc eq q(AAAAcccc);
-  
+
     ok &aaaa eq q(AAAAaaaa);
     ok &bbbb eq q(AAAAbbbb);
     ok &cccc eq q(AAAAcccc);
-  
+
     ok &dddd eq q(BBBBdddd);
     ok &eeee eq q(CCCCeeee);
    }
-  
+
 
 =head2 isSubInPackage($package, $sub)
 
@@ -13749,47 +13760,47 @@ Test whether the specified B<$package> contains the subroutine <$sub>.
 B<Example:>
 
 
-  if (1)                                                                           
+  if (1)
    {sub AAAA::Call {q(AAAA)}
-  
+
     sub BBBB::Call {q(BBBB)}
     sub BBBB::call {q(bbbb)}
-  
+
     if (1)
      {package BBBB;
       use Test::More;
       *ok = *Test::More::ok;
-  
+
       *isSubInPackage = *Data::Table::Text::isSubInPackage;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
       ok  isSubInPackage(q(AAAA), q(Call));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
       ok !isSubInPackage(q(AAAA), q(call));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
       ok  isSubInPackage(q(BBBB), q(Call));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
       ok  isSubInPackage(q(BBBB), q(call));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       ok Call eq q(BBBB);
       ok call eq q(bbbb);
       &Data::Table::Text::overrideMethods(qw(AAAA BBBB Call call));
-  
+
       *isSubInPackage = *Data::Table::Text::isSubInPackage;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
       ok  isSubInPackage(q(AAAA), q(Call));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
       ok  isSubInPackage(q(AAAA), q(call));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
       ok  isSubInPackage(q(BBBB), q(Call));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
       ok  isSubInPackage(q(BBBB), q(call));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       ok Call eq q(AAAA);
@@ -13801,7 +13812,7 @@ B<Example:>
       ok &call eq q(bbbb);
      }
    }
-  
+
 
 =head2 overrideMethods($from, $to, @methods)
 
@@ -13815,12 +13826,12 @@ For each method, if it exists in package B<$from> then export it to package B<$t
 B<Example:>
 
 
-  if (1)                                                                           
+  if (1)
    {sub AAAA::Call {q(AAAA)}
-  
+
     sub BBBB::Call {q(BBBB)}
     sub BBBB::call {q(bbbb)}
-  
+
     if (1)
      {package BBBB;
       use Test::More;
@@ -13832,7 +13843,7 @@ B<Example:>
       ok  isSubInPackage(q(BBBB), q(call));
       ok Call eq q(BBBB);
       ok call eq q(bbbb);
-  
+
       &Data::Table::Text::overrideMethods(qw(AAAA BBBB Call call));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       *isSubInPackage = *Data::Table::Text::isSubInPackage;
@@ -13849,7 +13860,7 @@ B<Example:>
       ok &call eq q(bbbb);
      }
    }
-  
+
 
 This is a static method and so should either be imported or invoked as:
 
@@ -13866,10 +13877,10 @@ Override methods down the list of B<@packages> then reabsorb any unused methods 
 B<Example:>
 
 
-  
+
     ok overrideAndReabsorbMethods(qw(main Edit::Xml Data::Edit::Xml));              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 This is a static method and so should either be imported or invoked as:
 
@@ -13878,7 +13889,7 @@ This is a static method and so should either be imported or invoked as:
 
 =head2 assertPackageRefs($package, @refs)
 
-Confirm that the specified references are to the specified package
+Confirm that the specified references are to the specified package.
 
      Parameter  Description
   1  $package   Package
@@ -13887,11 +13898,11 @@ Confirm that the specified references are to the specified package
 B<Example:>
 
 
-  
+
     eval q{assertPackageRefs(q(bbb), bless {}, q(aaa))};  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $@ =~ m(\AWanted reference to bbb, but got aaa);
-  
+
 
 =head2 assertRef(@refs)
 
@@ -13903,15 +13914,15 @@ Confirm that the specified references are to the package into which this routine
 B<Example:>
 
 
-  
+
     eval q{assertRef(bless {}, q(aaa))};  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $@ =~ m(\AWanted reference to Data::Table::Text, but got aaa);
-  
+
 
 =head2 arrayToHash(@array)
 
-Create a hash reference from an array
+Create a hash reference from an array.
 
      Parameter  Description
   1  @array     Array
@@ -13919,10 +13930,10 @@ Create a hash reference from an array
 B<Example:>
 
 
-  
+
   is_deeply arrayToHash(qw(a b c)), {a=>1, b=>1, c=>1};                             # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 flattenArrayAndHashValues(@array)
 
@@ -13934,10 +13945,10 @@ Flatten an array of scalars, array and hash references to make an array of scala
 B<Example:>
 
 
-  
+
   is_deeply [1..5], [flattenArrayAndHashValues([1], [[2]], {a=>3, b=>[4, [5]]})], 'ggg';   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 getSubName($sub)
 
@@ -13949,10 +13960,10 @@ Returns the (package, name, file, line) of a perl B<$sub> reference.
 B<Example:>
 
 
-  
+
   is_deeply [(getSubName(\&dateTime))[0,1]], ["Data::Table::Text", "dateTime"];     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head1 Strings
 
@@ -13970,36 +13981,36 @@ B<Example:>
 
     my $s = join '', 1..100;
     my $m = q(ef69caaaeea9c17120821a9eb6c7f1de);
-  
-  
+
+
     ok stringMd5Sum($s) eq $m;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     my $f = writeFile(undef, $s);
     ok fileMd5Sum($f) eq $m;
     unlink $f;
-  
+
     ok guidFromString(join '', 1..100) eq
        q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de);
-  
-  
+
+
     ok guidFromMd5(stringMd5Sum(join('', 1..100))) eq  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
        q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de);
-  
+
     ok md5FromGuid(q(GUID-ef69caaa-eea9-c171-2082-1a9eb6c7f1de)) eq
                         q(ef69caaaeea9c17120821a9eb6c7f1de);
-  
-  
+
+
     ok stringMd5Sum(q(𝝰 𝝱 𝝲)) eq q(3c2b7c31b1011998bd7e1f66fb7c024d);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   }
-  
+
   if (1)
-   {ok arraySum   (1..10) ==  55;                                                 
-    ok arrayProduct(1..5) == 120;                                                 
-    is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];                             
-  
+   {ok arraySum   (1..10) ==  55;
+    ok arrayProduct(1..5) == 120;
+    is_deeply[arrayTimes(2, 1..5)], [qw(2 4 6 8 10)];
+
 
 =head2 indentString($string, $indent)
 
@@ -14014,22 +14025,22 @@ B<Example:>
 
     my $t = [qw(aa bb cc)];
     my $d = [[qw(A B C)], [qw(AA BB CC)], [qw(AAA BBB CCC)],  [qw(1 22 333)]];
-  
+
     my $s = indentString(formatTable($d), '  ')."
 ";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok $s eq <<END;
     1  A    B    C
     2  AA   BB   CC
     3  AAA  BBB  CCC
     4    1   22  333
   END
-  
+
 
 =head2 replaceStringWithString($string, $source, $target)
 
-Replace all instances in B<$string> of B<$source> with B<$target>
+Replace all instances in B<$string> of B<$source> with B<$target>.
 
      Parameter  Description
   1  $string    String in which to replace substrings
@@ -14039,10 +14050,10 @@ Replace all instances in B<$string> of B<$source> with B<$target>
 B<Example:>
 
 
-  
+
   ok replaceStringWithString(q(abababZ), q(ab), q(c)) eq q(cccZ), 'eee';            # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 formatString($string, $width)
 
@@ -14055,14 +14066,14 @@ Format the specified B<$string> so it can be displayed in B<$width> columns.
 B<Example:>
 
 
-  
+
   ok formatString(<<END, 16) eq  <<END, 'fff';                                      # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   Now is the time for all
   good men to come to the rescue
   of the ailing B<party>.
   END
-  
+
 
 =head2 isBlank($string)
 
@@ -14074,15 +14085,15 @@ Test whether a string is blank.
 B<Example:>
 
 
-  
+
   ok isBlank("");                                                                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
-  ok isBlank(" 
+
+
+  ok isBlank("
  ");                                                               # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 trim($string)
 
@@ -14094,10 +14105,10 @@ Remove any white space from the front and end of a string.
 B<Example:>
 
 
-  
+
   ok trim(" a b ") eq join ' ', qw(a b);                                            # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 pad($string, $length, $padding)
 
@@ -14111,34 +14122,34 @@ Pad the specified B<$string> to a multiple of the specified B<$length>  with bla
 B<Example:>
 
 
-  
+
     is_deeply pad('abc  ', 2).'='         , "abc =";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply pad('abc  ', 3).'='         , "abc=";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply pad('abc  ', 4, q(.)).'='   , "abc.=";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply pad('abc  ', 5).'='         , "abc  =";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply pad('abc  ', 6).'='         , "abc   =";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply  ppp(2, 'abc  ').'='        , "abc =";
     is_deeply  ppp(3, 'abc  ').'='        , "abc=";
     is_deeply  ppp(4, 'abc  ', q(.)).'='  , "abc.=";
     is_deeply  ppp(5, 'abc  ').'='        , "abc  =";
     is_deeply  ppp(6, 'abc  ').'='        , "abc   =";
-  
+
     is_deeply lpad('abc  ', 2).'='        , " abc=";
     is_deeply lpad('abc  ', 3).'='        , "abc=";
     is_deeply lpad('abc  ', 4, q(.)).'='  , ".abc=";
     is_deeply lpad('abc  ', 5).'='        , "  abc=";
     is_deeply lpad('abc  ', 6).'='        , "   abc=";
-  
+
 
 =head2 lpad($string, $length, $padding)
 
@@ -14157,29 +14168,29 @@ B<Example:>
     is_deeply pad('abc  ', 4, q(.)).'='   , "abc.=";
     is_deeply pad('abc  ', 5).'='         , "abc  =";
     is_deeply pad('abc  ', 6).'='         , "abc   =";
-  
+
     is_deeply  ppp(2, 'abc  ').'='        , "abc =";
     is_deeply  ppp(3, 'abc  ').'='        , "abc=";
     is_deeply  ppp(4, 'abc  ', q(.)).'='  , "abc.=";
     is_deeply  ppp(5, 'abc  ').'='        , "abc  =";
     is_deeply  ppp(6, 'abc  ').'='        , "abc   =";
-  
-  
+
+
     is_deeply lpad('abc  ', 2).'='        , " abc=";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply lpad('abc  ', 3).'='        , "abc=";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply lpad('abc  ', 4, q(.)).'='  , ".abc=";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply lpad('abc  ', 5).'='        , "  abc=";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply lpad('abc  ', 6).'='        , "   abc=";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 ppp($length, $string, $padding)
 
@@ -14198,29 +14209,29 @@ B<Example:>
     is_deeply pad('abc  ', 4, q(.)).'='   , "abc.=";
     is_deeply pad('abc  ', 5).'='         , "abc  =";
     is_deeply pad('abc  ', 6).'='         , "abc   =";
-  
-  
+
+
     is_deeply  ppp(2, 'abc  ').'='        , "abc =";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply  ppp(3, 'abc  ').'='        , "abc=";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply  ppp(4, 'abc  ', q(.)).'='  , "abc.=";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply  ppp(5, 'abc  ').'='        , "abc  =";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply  ppp(6, 'abc  ').'='        , "abc   =";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply lpad('abc  ', 2).'='        , " abc=";
     is_deeply lpad('abc  ', 3).'='        , "abc=";
     is_deeply lpad('abc  ', 4, q(.)).'='  , ".abc=";
     is_deeply lpad('abc  ', 5).'='        , "  abc=";
     is_deeply lpad('abc  ', 6).'='        , "   abc=";
-  
+
 
 =head2 firstNChars($string, $length)
 
@@ -14233,14 +14244,14 @@ First N characters of a string.
 B<Example:>
 
 
-  
+
   ok firstNChars(q(abc), 2) eq q(ab);                                               # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-  
+
+
   ok firstNChars(q(abc), 4) eq q(abc);                                              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 nws($string, $length)
 
@@ -14253,14 +14264,14 @@ Normalize white space in a string to make comparisons easier. Leading and traili
 B<Example:>
 
 
-  
+
   ok nws(qq(a  b    c)) eq q(a b c);                                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 deduplicateSequentialWordsInString($s)
 
-Remove sequentially duplicate words in a string
+Remove sequentially duplicate words in a string.
 
      Parameter  Description
   1  $s         String to deduplicate
@@ -14268,17 +14279,17 @@ Remove sequentially duplicate words in a string
 B<Example:>
 
 
-  
+
     ok deduplicateSequentialWordsInString(<<END) eq qq(\(aa \[bb \-cc dd ee
 );  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   (aa [bb bb -cc cc dd dd dd dd ee ee ee ee
   END
-  
+
 
 =head2 detagString($string)
 
-Remove L<HTML|https://en.wikipedia.org/wiki/HTML> or L<Xml|https://en.wikipedia.org/wiki/XML> tags from a string
+Remove L<HTML|https://en.wikipedia.org/wiki/HTML> or L<Xml|https://en.wikipedia.org/wiki/XML> tags from a string.
 
      Parameter  Description
   1  $string    String to detag
@@ -14286,10 +14297,10 @@ Remove L<HTML|https://en.wikipedia.org/wiki/HTML> or L<Xml|https://en.wikipedia.
 B<Example:>
 
 
-  
+
   ok detagString(q(<a><a href="aaaa">a </a><a/>b </a>c)) eq q(a b c), 'hhh';        # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 parseIntoWordsAndStrings($string)
 
@@ -14301,15 +14312,15 @@ Parse a B<$string> into words and quoted strings. A quote following a space intr
 B<Example:>
 
 
-  if (1)                                                                          
+  if (1)
    {is_deeply
-  
+
      [parseIntoWordsAndStrings(  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   q( aa12!    a'b   "aa !! ++ bb"  '  ',      '"'  "'"  ""   ''.))  ],
    ["aa12!", "a'b", "aa !! ++ bb", "  ", ",", '"', "'", "",  "", '.'];
    }
-  
+
 
 =head2 stringsAreNotEqual($a, $b)
 
@@ -14322,16 +14333,16 @@ Return the common start followed by the two non equal tails of two non equal str
 B<Example:>
 
 
-  
+
     ok        !stringsAreNotEqual(q(abc), q(abc));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok         stringsAreNotEqual(q(abc), q(abd));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [stringsAreNotEqual(q(abc), q(abd))], [qw(ab c d)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [stringsAreNotEqual(q(ab),  q(abd))], [q(ab), '', q(d)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply showGotVersusWanted("aaaa
@@ -14350,20 +14361,20 @@ ffff
   bbbb
   cc
   Want ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-  
+
   ee
   ffff
-  
+
   Got  ________________________________________________________________________________
-  
+
   cc
   dddd
   END
-  
+
 
 =head2 showGotVersusWanted($g, $e)
 
-Show the difference between the wanted string and the wanted string
+Show the difference between the wanted string and the wanted string.
 
      Parameter  Description
   1  $g         First string
@@ -14376,7 +14387,7 @@ B<Example:>
     ok         stringsAreNotEqual(q(abc), q(abd));
     is_deeply [stringsAreNotEqual(q(abc), q(abd))], [qw(ab c d)];
     is_deeply [stringsAreNotEqual(q(ab),  q(abd))], [q(ab), '', q(d)];
-  
+
     is_deeply showGotVersusWanted("aaaa
 bbbb
 cccc
@@ -14394,16 +14405,16 @@ ffff
   bbbb
   cc
   Want ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-  
+
   ee
   ffff
-  
+
   Got  ________________________________________________________________________________
-  
+
   cc
   dddd
   END
-  
+
 
 =head2 printQw(@words)
 
@@ -14415,10 +14426,10 @@ Print an array of words in qw() format.
 B<Example:>
 
 
-  
+
   is_deeply       printQw(qw(a b c)),    q(qw(a b c));                              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 numberOfLinesInString($string)
 
@@ -14430,12 +14441,12 @@ The number of lines in a string.
 B<Example:>
 
 
-  
+
     ok numberOfLinesInString("a
 b
 ") == 2;                                        # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 javaPackage($java)
 
@@ -14451,18 +14462,18 @@ B<Example:>
   // Test
   package com.xyz;
   END
-  
+
     ok javaPackage($j)           eq "com.xyz";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok javaPackageAsFileName($j) eq "com/xyz";
     unlink $j;
-  
-    my $p = writeFile(undef, <<END);                                              
+
+    my $p = writeFile(undef, <<END);
   package a::b;
   END
-    ok perlPackage($p)           eq "a::b";                                       
+    ok perlPackage($p)           eq "a::b";
     unlink $p;
-  
+
 
 =head2 javaPackageAsFileName($java)
 
@@ -14479,17 +14490,17 @@ B<Example:>
   package com.xyz;
   END
     ok javaPackage($j)           eq "com.xyz";
-  
+
     ok javaPackageAsFileName($j) eq "com/xyz";  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     unlink $j;
-  
-    my $p = writeFile(undef, <<END);                                              
+
+    my $p = writeFile(undef, <<END);
   package a::b;
   END
-    ok perlPackage($p)           eq "a::b";                                       
+    ok perlPackage($p)           eq "a::b";
     unlink $p;
-  
+
 
 =head2 perlPackage($perl)
 
@@ -14508,28 +14519,28 @@ B<Example:>
     ok javaPackage($j)           eq "com.xyz";
     ok javaPackageAsFileName($j) eq "com/xyz";
     unlink $j;
-  
-    my $p = writeFile(undef, <<END);                                              
+
+    my $p = writeFile(undef, <<END);
   package a::b;
   END
-  
+
     ok perlPackage($p)           eq "a::b";                                         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     unlink $p;
-  
-    my $p = writeFile(undef, <<END);                                              
+
+    my $p = writeFile(undef, <<END);
   package a::b;
   END
-  
-  
+
+
     ok perlPackage($p)           eq "a::b";                                         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 javaScriptExports($fileOrString)
 
-Extract the Javascript functions marked for export in a file or string.  Functions are marked for export by placing function in column 1 followed by //E on the same line.  The end of the exported function is located by 
- }
+Extract the Javascript functions marked for export in a file or string.  Functions are marked for export by placing function in column 1 followed by //E on the same line.  The end of the exported function is located by
+ }.
 
      Parameter      Description
   1  $fileOrString  File or string
@@ -14537,12 +14548,12 @@ Extract the Javascript functions marked for export in a file or string.  Functio
 B<Example:>
 
 
-  
+
     ok javaScriptExports(<<END) eq <<END;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   function aaa()            //E
    {console.log('aaa');
-  
+
 
 =head2 chooseStringAtRandom(@strings)
 
@@ -14554,14 +14565,14 @@ Choose a string at random from the list of B<@strings> supplied.
 B<Example:>
 
 
-  
+
   ok q(a) eq chooseStringAtRandom(qw(a a a a));                                     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 randomizeArray(@a)
 
-Randomize an array
+Randomize an array.
 
      Parameter  Description
   1  @a         Array to randomize
@@ -14569,10 +14580,10 @@ Randomize an array
 B<Example:>
 
 
-  
+
   is_deeply [randomizeArray(qw(a a a a))], [qw(a a a a)];                             # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head1 Arrays and Hashes
 
@@ -14588,16 +14599,16 @@ Given an array of arrays find the length of the longest sub array.
 B<Example:>
 
 
-  if (1)                                                                          
-  
+  if (1)
+
    {ok 3 == lengthOfLongestSubArray [[1..2], [1..3], [1..3], []];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    }
-  
+
 
 =head2 cmpArrays($a, $b)
 
-Compare two arrays of strings
+Compare two arrays of strings.
 
      Parameter  Description
   1  $a         Array A
@@ -14606,26 +14617,42 @@ Compare two arrays of strings
 B<Example:>
 
 
-  
+
     ok cmpArrays([qw(a b)],   [qw(a a)])   == +1;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok cmpArrays([qw(a b)],   [qw(a c)])   == -1;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok cmpArrays([qw(a b)],   [qw(a b a)]) == -1;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok cmpArrays([qw(a b a)], [qw(a b)])   == +1;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok cmpArrays([qw(a b)],   [qw(a b)])   ==  0;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+    ok dump(compareArraysAndExplain([qw(a b c)], [qw(a B c)])) eq dump("Differs at index 1:
+b
+B
+");
+    ok dump(compareArraysAndExplain([qw(a b)],   [qw(a b c)])) eq dump("Second array has an additional line at index: 2
+c
+")
+    ;
+
+
+=head2 compareArraysAndExplain($A, $B)
+
+Compare two arrays of strings and provide an explanation as to why they differ if they differ or undef if they do not
+
+     Parameter  Description
+  1  $A         Array A
+  2  $B         Array B
 
 =head2 forEachKeyAndValue($body, %hash)
 
-Iterate over a hash for each key and value
+Iterate over a hash for each key and value.
 
      Parameter  Description
   1  $body      Body to be executed
@@ -14634,13 +14661,13 @@ Iterate over a hash for each key and value
 B<Example:>
 
 
-  
+
     forEachKeyAndValue  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      {my ($letter, $number) = @_;
       push @t,  "Letter=$letter, number=$number";
      } %h;
-  
+
     is_deeply join("
 ", @t, ''), <<END;
   Letter=a, number=1
@@ -14648,26 +14675,36 @@ B<Example:>
   Letter=c, number=3
   END
   }
-  
-  if (1) {                                                                        
+
+  if (1) {
     is_deeply convertUtf8ToUtf32(0x24),          0x24;
     is_deeply convertUtf8ToUtf32(0xc2a2),        0xa2;
     is_deeply convertUtf8ToUtf32(0xe0a4b9),      0x939;
     is_deeply convertUtf8ToUtf32(0xe282ac),      0x20ac;
     is_deeply convertUtf8ToUtf32(0xed959c),      0xd55c;
     is_deeply convertUtf8ToUtf32(0xf0908d88),    0x10348;
-  
-    is_deeply convertUtf32ToUtf8(0x24),    0x24;                                  
+
+    is_deeply convertUtf32ToUtf8(0x24),    0x24;
     is_deeply convertUtf32ToUtf8(0xa2),    0xc2a2;
     is_deeply convertUtf32ToUtf8(0x939),   0xe0a4b9;
     is_deeply convertUtf32ToUtf8(0x20ac),  0xe282ac;
     is_deeply convertUtf32ToUtf8(0xd55c),  0xed959c;
     is_deeply convertUtf32ToUtf8(0x10348), 0xf0908d88;
+
+    is_deeply convertUtf32ToUtf8LE(0x24),    0x24;
+    is_deeply convertUtf32ToUtf8LE(0xa2),    0xa2c2;
+    is_deeply convertUtf32ToUtf8LE(0x939),   0xb9a4e0;
+    is_deeply convertUtf32ToUtf8LE(0x20ac),  0xac82e2;
+    is_deeply convertUtf32ToUtf8LE(0xd55c),  0x9c95ed;
+    is_deeply convertUtf32ToUtf8LE(0x10348), 0x888d90f0;
   };
-  
-  if ($localTest)
-   {say STDERR "DTT finished in ", (time() - $timeStart), " seconds";
-  
+
+  #latest:;
+  if (1) {
+    ok evalOrConfess("1") == 1;
+    my $r = eval {evalOrConfess "++ ++"};
+    ok $@ =~ m(syntax error);
+
 
 =head1 Unicode
 
@@ -14683,10 +14720,10 @@ Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Uni
 B<Example:>
 
 
-  
+
   ok mathematicalItalicString                 (q(APPLES and ORANGES)) eq q(𝐴𝑃𝑃𝐿𝐸𝑆 𝑎𝑛𝑑 𝑂𝑅𝐴𝑁𝐺𝐸𝑆);    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalBoldString($string)
 
@@ -14698,14 +14735,14 @@ Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Uni
 B<Example:>
 
 
-  
+
   ok mathematicalBoldString                   (q(APPLES and ORANGES)) eq q(𝐀𝐏𝐏𝐋𝐄𝐒 𝐚𝐧𝐝 𝐎𝐑𝐀𝐍𝐆𝐄𝐒);    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalBoldStringUndo($string)
 
-Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Bold..
+Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Bold.
 
      Parameter  Description
   1  $string    String to convert
@@ -14713,10 +14750,10 @@ Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicod
 B<Example:>
 
 
-  
+
   ok mathematicalBoldStringUndo               (q(𝐀𝐏𝐏𝐋𝐄𝐒 𝐚𝐧𝐝 𝐎𝐑𝐀𝐍𝐆𝐄𝐒)) eq q(APPLES and ORANGES);    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalBoldItalicString($string)
 
@@ -14728,10 +14765,10 @@ Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Uni
 B<Example:>
 
 
-  
+
   ok mathematicalBoldItalicString             (q(APPLES and ORANGES)) eq q(𝑨𝑷𝑷𝑳𝑬𝑺 𝒂𝒏𝒅 𝑶𝑹𝑨𝑵𝑮𝑬𝑺);     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalBoldItalicStringUndo($string)
 
@@ -14743,10 +14780,10 @@ Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicod
 B<Example:>
 
 
-  
+
   ok mathematicalBoldItalicStringUndo         (q(𝑨𝑷𝑷𝑳𝑬𝑺 𝒂𝒏𝒅 𝑶𝑹𝑨𝑵𝑮𝑬𝑺))  eq q(APPLES and ORANGES);    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalSansSerifString($string)
 
@@ -14758,10 +14795,10 @@ Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Uni
 B<Example:>
 
 
-  
+
   ok mathematicalSansSerifString              (q(APPLES and ORANGES)) eq q(𝖠𝖯𝖯𝖫𝖤𝖲 𝖺𝗇𝖽 𝖮𝖱𝖠𝖭𝖦𝖤𝖲);     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalSansSerifStringUndo($string)
 
@@ -14773,10 +14810,10 @@ Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicod
 B<Example:>
 
 
-  
+
   ok mathematicalSansSerifStringUndo          (q(𝖠𝖯𝖯𝖫𝖤𝖲 𝖺𝗇𝖽 𝖮𝖱𝖠𝖭𝖦𝖤𝖲))  eq q(APPLES and ORANGES);    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalSansSerifBoldString($string)
 
@@ -14788,10 +14825,10 @@ Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Uni
 B<Example:>
 
 
-  
+
   ok mathematicalSansSerifBoldString          (q(APPLES and ORANGES)) eq q(𝗔𝗣𝗣𝗟𝗘𝗦 𝗮𝗻𝗱 𝗢𝗥𝗔𝗡𝗚𝗘𝗦);     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalSansSerifBoldStringUndo($string)
 
@@ -14803,10 +14840,10 @@ Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicod
 B<Example:>
 
 
-  
+
   ok mathematicalSansSerifBoldStringUndo      (q(𝗔𝗣𝗣𝗟𝗘𝗦 𝗮𝗻𝗱 𝗢𝗥𝗔𝗡𝗚𝗘𝗦)) eq q(APPLES and ORANGES);     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalSansSerifItalicString($string)
 
@@ -14818,10 +14855,10 @@ Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Uni
 B<Example:>
 
 
-  
+
   ok mathematicalSansSerifItalicString        (q(APPLES and ORANGES)) eq q(𝘈𝘗𝘗𝘓𝘌𝘚 𝘢𝘯𝘥 𝘖𝘙𝘈𝘕𝘎𝘌𝘚);      # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalSansSerifItalicStringUndo($string)
 
@@ -14833,10 +14870,10 @@ Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicod
 B<Example:>
 
 
-  
+
   ok mathematicalSansSerifItalicStringUndo    (q(𝘈𝘗𝘗𝘓𝘌𝘚 𝘢𝘯𝘥 𝘖𝘙𝘈𝘕𝘎𝘌𝘚)) eq q(APPLES and ORANGES);      # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalSansSerifBoldItalicString($string)
 
@@ -14848,10 +14885,10 @@ Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Uni
 B<Example:>
 
 
-  
+
   ok mathematicalSansSerifBoldItalicString    (q(APPLES and ORANGES)) eq q(𝘼𝙋𝙋𝙇𝙀𝙎 𝙖𝙣𝙙 𝙊𝙍𝘼𝙉𝙂𝙀𝙎);     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalSansSerifBoldItalicStringUndo($string)
 
@@ -14863,10 +14900,10 @@ Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicod
 B<Example:>
 
 
-  
+
   ok mathematicalSansSerifBoldItalicStringUndo(q(𝘼𝙋𝙋𝙇𝙀𝙎 𝙖𝙣𝙙 𝙊𝙍𝘼𝙉𝙂𝙀𝙎)) eq q(APPLES and ORANGES);     # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalMonoSpaceString($string)
 
@@ -14878,10 +14915,10 @@ Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Uni
 B<Example:>
 
 
-  
+
   ok mathematicalMonoSpaceString              (q(APPLES and ORANGES)) eq q(𝙰𝙿𝙿𝙻𝙴𝚂 𝚊𝚗𝚍 𝙾𝚁𝙰𝙽𝙶𝙴𝚂);    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 mathematicalMonoSpaceStringUndo($string)
 
@@ -14893,10 +14930,10 @@ Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicod
 B<Example:>
 
 
-  
+
   ok mathematicalMonoSpaceStringUndo          (q(𝙰𝙿𝙿𝙻𝙴𝚂 𝚊𝚗𝚍 𝙾𝚁𝙰𝙽𝙶𝙴𝚂)) eq q(APPLES and ORANGES);    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 boldString($string)
 
@@ -14908,10 +14945,10 @@ Convert alphanumerics in a string to bold.
 B<Example:>
 
 
-  
+
   ok boldString(q(zZ)) eq q(𝘇𝗭);                                                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 boldStringUndo($string)
 
@@ -14923,9 +14960,9 @@ Undo alphanumerics in a string to bold.
 B<Example:>
 
 
-  if (1)                                                                              
+  if (1)
    {my $n = 1234567890;
-  
+
     ok boldStringUndo            (boldString($n))             == $n;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok enclosedStringUndo        (enclosedString($n))         == $n;
@@ -14933,7 +14970,7 @@ B<Example:>
     ok superScriptStringUndo     (superScriptString($n))      == $n;
     ok subScriptStringUndo       (subScriptString($n))        == $n;
    }
-  
+
 
 =head2 enclosedString($string)
 
@@ -14945,10 +14982,10 @@ Convert alphanumerics in a string to enclosed alphanumerics.
 B<Example:>
 
 
-  
+
   ok enclosedString(q(hello world 1234)) eq q(ⓗⓔⓛⓛⓞ ⓦⓞⓡⓛⓓ ①②③④);           # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 enclosedStringUndo($string)
 
@@ -14960,17 +14997,17 @@ Undo alphanumerics in a string to enclosed alphanumerics.
 B<Example:>
 
 
-  if (1)                                                                              
+  if (1)
    {my $n = 1234567890;
     ok boldStringUndo            (boldString($n))             == $n;
-  
+
     ok enclosedStringUndo        (enclosedString($n))         == $n;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok enclosedReversedStringUndo(enclosedReversedString($n)) == $n;
     ok superScriptStringUndo     (superScriptString($n))      == $n;
     ok subScriptStringUndo       (subScriptString($n))        == $n;
    }
-  
+
 
 =head2 enclosedReversedString($string)
 
@@ -14982,10 +15019,10 @@ Convert alphanumerics in a string to enclosed reversed alphanumerics.
 B<Example:>
 
 
-  
+
   ok enclosedReversedString(q(hello world 1234)) eq q(🅗🅔🅛🅛🅞 🅦🅞🅡🅛🅓 ➊➋➌➍);   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 enclosedReversedStringUndo($string)
 
@@ -14997,21 +15034,21 @@ Undo alphanumerics in a string to enclosed reversed alphanumerics.
 B<Example:>
 
 
-  if (1)                                                                              
+  if (1)
    {my $n = 1234567890;
     ok boldStringUndo            (boldString($n))             == $n;
     ok enclosedStringUndo        (enclosedString($n))         == $n;
-  
+
     ok enclosedReversedStringUndo(enclosedReversedString($n)) == $n;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok superScriptStringUndo     (superScriptString($n))      == $n;
     ok subScriptStringUndo       (subScriptString($n))        == $n;
    }
-  
+
 
 =head2 superScriptString($string)
 
-Convert alphanumerics in a string to super scripts
+Convert alphanumerics in a string to super scripts.
 
      Parameter  Description
   1  $string    String to convert
@@ -15019,14 +15056,14 @@ Convert alphanumerics in a string to super scripts
 B<Example:>
 
 
-  
+
   ok superScriptString(1234567890) eq q(¹²³⁴⁵⁶⁷⁸⁹⁰);                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 superScriptStringUndo($string)
 
-Undo alphanumerics in a string to super scripts
+Undo alphanumerics in a string to super scripts.
 
      Parameter  Description
   1  $string    String to convert
@@ -15034,21 +15071,21 @@ Undo alphanumerics in a string to super scripts
 B<Example:>
 
 
-  if (1)                                                                              
+  if (1)
    {my $n = 1234567890;
     ok boldStringUndo            (boldString($n))             == $n;
     ok enclosedStringUndo        (enclosedString($n))         == $n;
     ok enclosedReversedStringUndo(enclosedReversedString($n)) == $n;
-  
+
     ok superScriptStringUndo     (superScriptString($n))      == $n;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok subScriptStringUndo       (subScriptString($n))        == $n;
    }
-  
+
 
 =head2 subScriptString($string)
 
-Convert alphanumerics in a string to sub scripts
+Convert alphanumerics in a string to sub scripts.
 
      Parameter  Description
   1  $string    String to convert
@@ -15056,14 +15093,14 @@ Convert alphanumerics in a string to sub scripts
 B<Example:>
 
 
-  
+
   ok subScriptString(1234567890)   eq q(₁₂₃₄₅₆₇₈₉₀);                                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 subScriptStringUndo($string)
 
-Undo alphanumerics in a string to sub scripts
+Undo alphanumerics in a string to sub scripts.
 
      Parameter  Description
   1  $string    String to convert
@@ -15071,21 +15108,21 @@ Undo alphanumerics in a string to sub scripts
 B<Example:>
 
 
-  if (1)                                                                              
+  if (1)
    {my $n = 1234567890;
     ok boldStringUndo            (boldString($n))             == $n;
     ok enclosedStringUndo        (enclosedString($n))         == $n;
     ok enclosedReversedStringUndo(enclosedReversedString($n)) == $n;
     ok superScriptStringUndo     (superScriptString($n))      == $n;
-  
+
     ok subScriptStringUndo       (subScriptString($n))        == $n;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    }
-  
+
 
 =head2 isFileUtf8($file)
 
-Return the file name quoted if its contents are in utf8 else return undef
+Return the file name quoted if its contents are in utf8 else return undef.
 
      Parameter  Description
   1  $file      File to test
@@ -15094,10 +15131,10 @@ B<Example:>
 
 
     my $f = writeFile(undef, "aaa");
-  
+
     ok isFileUtf8 $f;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 convertUtf8ToUtf32($c)
 
@@ -15109,40 +15146,50 @@ Convert a number representing a single unicode point coded in utf8 to utf32.
 B<Example:>
 
 
-  
+
     is_deeply convertUtf8ToUtf32(0x24),          0x24;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply convertUtf8ToUtf32(0xc2a2),        0xa2;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply convertUtf8ToUtf32(0xe0a4b9),      0x939;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply convertUtf8ToUtf32(0xe282ac),      0x20ac;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply convertUtf8ToUtf32(0xed959c),      0xd55c;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply convertUtf8ToUtf32(0xf0908d88),    0x10348;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
-    is_deeply convertUtf32ToUtf8(0x24),    0x24;                                  
+
+    is_deeply convertUtf32ToUtf8(0x24),    0x24;
     is_deeply convertUtf32ToUtf8(0xa2),    0xc2a2;
     is_deeply convertUtf32ToUtf8(0x939),   0xe0a4b9;
     is_deeply convertUtf32ToUtf8(0x20ac),  0xe282ac;
     is_deeply convertUtf32ToUtf8(0xd55c),  0xed959c;
     is_deeply convertUtf32ToUtf8(0x10348), 0xf0908d88;
+
+    is_deeply convertUtf32ToUtf8LE(0x24),    0x24;
+    is_deeply convertUtf32ToUtf8LE(0xa2),    0xa2c2;
+    is_deeply convertUtf32ToUtf8LE(0x939),   0xb9a4e0;
+    is_deeply convertUtf32ToUtf8LE(0x20ac),  0xac82e2;
+    is_deeply convertUtf32ToUtf8LE(0xd55c),  0x9c95ed;
+    is_deeply convertUtf32ToUtf8LE(0x10348), 0x888d90f0;
   };
-  
-  if ($localTest)
-   {say STDERR "DTT finished in ", (time() - $timeStart), " seconds";
-  
+
+  #latest:;
+  if (1) {
+    ok evalOrConfess("1") == 1;
+    my $r = eval {evalOrConfess "++ ++"};
+    ok $@ =~ m(syntax error);
+
 
 =head2 convertUtf32ToUtf8($c)
 
-Convert a number representing a single unicode point coded in utf32 to utf8.
+Convert a number representing a single unicode point coded in utf32 to utf8 big endian.
 
      Parameter  Description
   1  $c         Unicode point encoded as utf32
@@ -15150,10 +15197,87 @@ Convert a number representing a single unicode point coded in utf32 to utf8.
 B<Example:>
 
 
-  
+
     is_deeply convertUtf32ToUtf8(0x24),    0x24;                                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
+
+=head2 convertUtf32ToUtf8LE($c)
+
+Convert a number representing a single unicode point coded in utf32 to utf8 little endian.
+
+     Parameter  Description
+  1  $c         Unicode point encoded as utf32
+
+B<Example:>
+
+
+
+    is_deeply convertUtf32ToUtf8LE(0x24),    0x24;                                  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+
+=head1 System Constants
+
+Extract system constants
+
+=head2 getSystemConstantsFromIncludeFile($file, @constants)
+
+Get the value of the named system constants from an include file.
+
+     Parameter   Description
+  1  $file       File to read
+  2  @constants  Constants to get
+
+B<Example:>
+
+
+  if (1)
+
+   {my %c = (getSystemConstantsFromIncludeFile("linux/mman.h", qw(MAP_PRIVATE PROT_READ)),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+             getSystemConstantsFromIncludeFile("linux/mman.h", qw(MAP_PRIVATE PROT_WRITE)));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
+
+
+    is_deeply \%c, { MAP_PRIVATE => 2, PROT_READ => 1, PROT_WRITE => 2 };
+   }
+
+
+=head2 getStructureSizeFromIncludeFile($file, $structure)
+
+Get the size of a system structure from an include file.
+
+     Parameter   Description
+  1  $file       File to read
+  2  $structure  Structure name
+
+B<Example:>
+
+
+  if (1)
+   {my $o = getFieldOffsetInStructureFromIncludeFile("sys/stat.h", q(struct stat), q(st_size));
+    is_deeply $o, 48;
+   }
+
+
+=head2 getFieldOffsetInStructureFromIncludeFile($file, $structure, $field)
+
+Get the offset of a field in a system structures from an include file.
+
+     Parameter   Description
+  1  $file       File to read
+  2  $structure  Structure name
+  3  $field      Field name
+
+B<Example:>
+
+
+  if (1)
+   {my $s = getStructureSizeFromIncludeFile("sys/stat.h", q(struct stat));
+    is_deeply $s, 144;
+   }
+
 
 =head1 Unix domain communications
 
@@ -15170,14 +15294,14 @@ B<Example:>
 
 
     my $N = 20;
-  
+
     my $s = newUdsrServer(serverAction=>sub  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      {my ($u) = @_;
       my $r = $u->read;
       $u->write(qq(Hello from server $r));
      });
-  
+
     my $p = newProcessStarter(min(100, $N));                                      # Run some clients
     for my $i(1..$N)
      {$p->start(sub
@@ -15192,16 +15316,16 @@ B<Example:>
         [$count]
        });
      }
-  
+
     my $count;
     for my $r($p->finish)                                                         # Consolidate results
      {my ($c) = @$r;
       $count += $c;
      }
-  
+
     ok $count == $N*$N;                                                           # Check results and kill
     $s->kill;
-  
+
 
 =head2 newUdsrClient(@parms)
 
@@ -15219,13 +15343,13 @@ B<Example:>
       my $r = $u->read;
       $u->write(qq(Hello from server $r));
      });
-  
+
     my $p = newProcessStarter(min(100, $N));                                      # Run some clients
     for my $i(1..$N)
      {$p->start(sub
        {my $count = 0;
         for my $j(1..$N)
-  
+
          {my $c = newUdsrClient;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
           my $m = qq(Hello from client $i x $j);
@@ -15236,16 +15360,16 @@ B<Example:>
         [$count]
        });
      }
-  
+
     my $count;
     for my $r($p->finish)                                                         # Consolidate results
      {my ($c) = @$r;
       $count += $c;
      }
-  
+
     ok $count == $N*$N;                                                           # Check results and kill
     $s->kill;
-  
+
 
 =head2 Udsr::write($u, $msg)
 
@@ -15264,7 +15388,7 @@ B<Example:>
       my $r = $u->read;
       $u->write(qq(Hello from server $r));
      });
-  
+
     my $p = newProcessStarter(min(100, $N));                                      # Run some clients
     for my $i(1..$N)
      {$p->start(sub
@@ -15279,16 +15403,16 @@ B<Example:>
         [$count]
        });
      }
-  
+
     my $count;
     for my $r($p->finish)                                                         # Consolidate results
      {my ($c) = @$r;
       $count += $c;
      }
-  
+
     ok $count == $N*$N;                                                           # Check results and kill
     $s->kill;
-  
+
 
 =head2 Udsr::read($u)
 
@@ -15306,7 +15430,7 @@ B<Example:>
       my $r = $u->read;
       $u->write(qq(Hello from server $r));
      });
-  
+
     my $p = newProcessStarter(min(100, $N));                                      # Run some clients
     for my $i(1..$N)
      {$p->start(sub
@@ -15321,16 +15445,16 @@ B<Example:>
         [$count]
        });
      }
-  
+
     my $count;
     for my $r($p->finish)                                                         # Consolidate results
      {my ($c) = @$r;
       $count += $c;
      }
-  
+
     ok $count == $N*$N;                                                           # Check results and kill
     $s->kill;
-  
+
 
 =head2 Udsr::kill($u)
 
@@ -15348,7 +15472,7 @@ B<Example:>
       my $r = $u->read;
       $u->write(qq(Hello from server $r));
      });
-  
+
     my $p = newProcessStarter(min(100, $N));                                      # Run some clients
     for my $i(1..$N)
      {$p->start(sub
@@ -15363,16 +15487,16 @@ B<Example:>
         [$count]
        });
      }
-  
+
     my $count;
     for my $r($p->finish)                                                         # Consolidate results
      {my ($c) = @$r;
       $count += $c;
      }
-  
+
     ok $count == $N*$N;                                                           # Check results and kill
     $s->kill;
-  
+
 
 =head2 Udsr::webUser($u, $folder)
 
@@ -15385,11 +15509,11 @@ Create a systemd installed server that processes http requests using a specified
 B<Example:>
 
 
-  if (0)                                                                          
+  if (0)
    {my $fold = fpd(qw(/home phil zzz));                                           # Folder to contain server code
     my $name = q(test);                                                           # Service
     my $user = q(phil);                                                           # User
-  
+
     my $udsr = newUdsr                                                            # Create a Udsr parameter list
      (serviceName => $name,
       serviceUser => $user,
@@ -15400,23 +15524,23 @@ B<Example:>
   my $dtts = dateTimeStamp;
   return <<END2;
   Content-type: text/html
-  
+
   <h1>Hello World to you $user on $dtts!</h1>
-  
+
   <pre>
   $list
   </pre>
   END2
   END
      );
-  
-  
+
+
     Udsr::webUser($udsr, $fold);                                                  # Create and install web service interface  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $ip = awsIp;
     say STDERR qx(curl http://$ip/cgi-bin/$name/client.pl);                       # Enable port 80 on AWS first
    }
-  
+
 
 =head2 www
 
@@ -15437,15 +15561,15 @@ B<Example:>
 
 
     wwwHeader;
-  
-  
+
+
     wwwGitHubAuth  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      {my ($user, $state, $token, $scope, $type) = @_;
      }
     q(12345678901234567890), q(1234567890123456789012345678901234567890),
     q(12345678901234567890123456789012), q(12345678901234567890);
-  
+
 
 =head1 Cloud Cover
 
@@ -15453,20 +15577,20 @@ Useful for operating across the cloud.
 
 =head2 makeDieConfess()
 
-Force die to confess where the death occurred
+Force die to confess where the death occurred.
 
 
 B<Example:>
 
 
-  
+
     makeDieConfess                                                                  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 ipAddressOfHost($host)
 
-Get the first ip address of the specified host via Domain Name Services
+Get the first ip address of the specified host via Domain Name Services.
 
      Parameter  Description
   1  $host      Host name
@@ -15479,7 +15603,7 @@ B<Example:>
     ok saveAwsDomain(q(example.org));
     ok awsR53a   (q(XXXXX), q(www.example.org), q(22.12.232.1));
     ok awsR53aaaa(q(XXXXX), q(www.example.org), q([1232:1232:1232:1232:1232:1232:1232:1232:]));
-  
+
 
 =head2 awsIp()
 
@@ -15489,14 +15613,14 @@ Get ip address of server at L<Amazon Web Services|http://aws.amazon.com>.
 B<Example:>
 
 
-  
+
     ok saveAwsIp(q(0.0.0.0)) eq awsIp;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok saveAwsIp(q(example.org));
     ok saveAwsDomain(q(example.org));
     ok awsR53a   (q(XXXXX), q(www.example.org), q(22.12.232.1));
     ok awsR53aaaa(q(XXXXX), q(www.example.org), q([1232:1232:1232:1232:1232:1232:1232:1232:]));
-  
+
 
 =head2 saveAwsIp()
 
@@ -15506,16 +15630,16 @@ Make the server at L<Amazon Web Services|http://aws.amazon.com> with the given I
 B<Example:>
 
 
-  
+
     ok saveAwsIp(q(0.0.0.0)) eq awsIp;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok saveAwsIp(q(example.org));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok saveAwsDomain(q(example.org));
     ok awsR53a   (q(XXXXX), q(www.example.org), q(22.12.232.1));
     ok awsR53aaaa(q(XXXXX), q(www.example.org), q([1232:1232:1232:1232:1232:1232:1232:1232:]));
-  
+
 
 =head2 saveAwsDomain()
 
@@ -15527,12 +15651,12 @@ B<Example:>
 
     ok saveAwsIp(q(0.0.0.0)) eq awsIp;
     ok saveAwsIp(q(example.org));
-  
+
     ok saveAwsDomain(q(example.org));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok awsR53a   (q(XXXXX), q(www.example.org), q(22.12.232.1));
     ok awsR53aaaa(q(XXXXX), q(www.example.org), q([1232:1232:1232:1232:1232:1232:1232:1232:]));
-  
+
 
 =head2 awsMetaData($item)
 
@@ -15544,10 +15668,10 @@ Get an item of meta data for the L<Amazon Web Services|http://aws.amazon.com> se
 B<Example:>
 
 
-  
+
     ok awsMetaData(q(instance-id))    eq q(i-06a4b221b30bf7a37);                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsCurrentIp()
 
@@ -15557,15 +15681,15 @@ Get the ip address of the AWS server we are currently running on if we are runni
 B<Example:>
 
 
-  
+
     awsCurrentIp;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     confirmHasCommandLineCommand(q(find));
-  
-  
+
+
     ok awsCurrentIp                   eq q(31.41.59.26);                            # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsCurrentInstanceId()
 
@@ -15575,10 +15699,10 @@ Get the instance id of the L<Amazon Web Services|http://aws.amazon.com> server w
 B<Example:>
 
 
-  
+
     ok awsCurrentInstanceId           eq q(i-06a4b221b30bf7a37);                    # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsCurrentAvailabilityZone()
 
@@ -15588,10 +15712,10 @@ Get the availability zone of the L<Amazon Web Services|http://aws.amazon.com> se
 B<Example:>
 
 
-  
+
     ok awsCurrentAvailabilityZone     eq q(us-east-2a);                             # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsCurrentRegion()
 
@@ -15601,10 +15725,10 @@ Get the region of the L<Amazon Web Services|http://aws.amazon.com> server we are
 B<Example:>
 
 
-  
+
     ok awsCurrentRegion               eq q(us-east-2);                              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsCurrentInstanceType()
 
@@ -15614,14 +15738,14 @@ Get the instance type of the L<Amazon Web Services|http://aws.amazon.com> server
 B<Example:>
 
 
-  
+
     ok awsCurrentInstanceType         eq q(r4.4xlarge);                             # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsExecCli($command, %options)
 
-Execute an AWs command and return its response
+Execute an AWs command and return its response.
 
      Parameter  Description
   1  $command   Command to execute
@@ -15630,16 +15754,16 @@ Execute an AWs command and return its response
 B<Example:>
 
 
-  
+
     ok awsExecCli(q(aws s3 ls)) =~ m(ryffine)i;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $p = awsExecCliJson(q(aws ec2 describe-vpcs), region=>q(us-east-1));
     ok $p->Vpcs->[0]->VpcId =~ m(\Avpc-)i;
-  
+
 
 =head2 awsExecCliJson($command, %options)
 
-Execute an AWs command and decode the json so produced
+Execute an AWs command and decode the json so produced.
 
      Parameter  Description
   1  $command   Command to execute
@@ -15649,11 +15773,11 @@ B<Example:>
 
 
     ok awsExecCli(q(aws s3 ls)) =~ m(ryffine)i;
-  
+
     my $p = awsExecCliJson(q(aws ec2 describe-vpcs), region=>q(us-east-1));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $p->Vpcs->[0]->VpcId =~ m(\Avpc-)i;
-  
+
 
 =head2 awsEc2DescribeInstances(%options)
 
@@ -15666,12 +15790,12 @@ B<Example:>
 
 
     my %options = (region => q(us-east-2), profile=>q(fmc));
-  
+
     my $r = awsEc2DescribeInstances              (%options);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my %i = awsEc2DescribeInstancesGetIPAddresses(%options);
     is_deeply \%i, { "i-068a7176ba9140057" => { "18.221.162.39" => 1 } };
-  
+
 
 =head2 awsEc2DescribeInstancesGetIPAddresses(%options)
 
@@ -15685,11 +15809,11 @@ B<Example:>
 
     my %options = (region => q(us-east-2), profile=>q(fmc));
     my $r = awsEc2DescribeInstances              (%options);
-  
+
     my %i = awsEc2DescribeInstancesGetIPAddresses(%options);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply \%i, { "i-068a7176ba9140057" => { "18.221.162.39" => 1 } };
-  
+
 
 =head2 awsEc2InstanceIpAddress($instanceId, %options)
 
@@ -15702,11 +15826,11 @@ Return the IP address of a named instance on L<Amazon Web Services|http://aws.am
 B<Example:>
 
 
-  
+
     ok q(3.33.133.233) eq awsEc2InstanceIpAddress  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       ("i-xxx", region => q(us-east-2), profile=>q(fmc));
-  
+
 
 =head2 awsEc2CreateImage($name, %options)
 
@@ -15719,10 +15843,10 @@ Create an image snap shot with the specified B<$name> of the AWS server we are c
 B<Example:>
 
 
-  
+
        awsEc2CreateImage(q(099 Gold));                                              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsEc2FindImagesWithTagValue($value, %options)
 
@@ -15736,12 +15860,12 @@ B<Example:>
 
 
     is_deeply
-  
+
      [awsEc2FindImagesWithTagValue(qr(boot)i, region=>'us-east-2',  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       profile=>'fmc')],
      ["ami-011b4273c6123ae76"];
-  
+
 
 =head2 awsEc2DescribeImages(%options)
 
@@ -15753,14 +15877,14 @@ Describe images available.
 B<Example:>
 
 
-  
+
     awsEc2DescribeImages(region => q(us-east-2), profile=>q(fmc));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsCurrentLinuxSpotPrices(%options)
 
-Return {instance type} = cheapest spot price in dollars per hour for the given region
+Return {instance type} = cheapest spot price in dollars per hour for the given region.
 
      Parameter  Description
   1  %options   Options
@@ -15768,10 +15892,10 @@ Return {instance type} = cheapest spot price in dollars per hour for the given r
 B<Example:>
 
 
-  
+
      awsCurrentLinuxSpotPrices(region => q(us-east-2), profile=>q(fmc));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsEc2DescribeInstanceType($instanceType, %options)
 
@@ -15784,11 +15908,11 @@ Return details of the specified instance type.
 B<Example:>
 
 
-  
+
     my $i = awsEc2DescribeInstanceType  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ("m4.large", region=>'us-east-2', profile=>'fmc');
-  
+
     is_deeply $i->{VCpuInfo},
      {DefaultCores          => 1,
       DefaultThreadsPerCore => 2,
@@ -15796,7 +15920,7 @@ B<Example:>
       ValidCores            => [1],
       ValidThreadsPerCore   => [1, 2],
       };
-  
+
 
 =head2 awsEc2ReportSpotInstancePrices($instanceTypeRe, %options)
 
@@ -15809,24 +15933,24 @@ Report the prices of all the spot instances whose type matches a regular express
 B<Example:>
 
 
-  
+
     my $a = awsEc2ReportSpotInstancePrices  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      (qr(\.metal), region=>'us-east-2', profile=>'fmc');
     ok $a->report eq <<END;
   CPUs by price
-  
+
   10 instances types found on 2019-12-24 at 22:53:26
-  
+
   Cheapest Instance Type: m5.metal
   Price Per Cpu hour    : 6.65      in millidollars per hour
-  
+
      Column         Description
   1  Instance_Type  Instance type name
   2  Price          Price in millidollars per hour
   3  CPUs           Number of Cpus
   4  Price_per_CPU  The price per CPU in millidollars per hour
-  
+
       Instance_Type  Price  CPUs  Price_per_CPU
    1  m5.metal         638    96           6.65
    2  r5.metal         668    96           6.97
@@ -15839,7 +15963,7 @@ B<Example:>
    9  z1d.metal       1339    48          27.90
   10  i3en.metal      3254    96          33.90
   END
-  
+
 
 =head2 awsEc2RequestSpotInstances($count, $instanceType, $ami, $price, $securityGroup, $key, %options)
 
@@ -15857,12 +15981,12 @@ Request spot instances as long as they can be started within the next minute. Re
 B<Example:>
 
 
-  
+
     my $r = awsEc2RequestSpotInstances  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      (2, q(t2.micro), "ami-xxx", 0.01, q(xxx), q(yyy),
       region=>'us-east-2', profile=>'fmc');
-  
+
 
 =head2 awsEc2DescribeSpotInstances(%options)
 
@@ -15874,10 +15998,10 @@ Return a hash {spot instance request => spot instance details} describing the st
 B<Example:>
 
 
-  
+
     my $r = awsEc2DescribeSpotInstances(region => q(us-east-2), profile=>q(fmc));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsR53a($zone, $server, $ip, %options)
 
@@ -15895,11 +16019,11 @@ B<Example:>
     ok saveAwsIp(q(0.0.0.0)) eq awsIp;
     ok saveAwsIp(q(example.org));
     ok saveAwsDomain(q(example.org));
-  
+
     ok awsR53a   (q(XXXXX), q(www.example.org), q(22.12.232.1));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok awsR53aaaa(q(XXXXX), q(www.example.org), q([1232:1232:1232:1232:1232:1232:1232:1232:]));
-  
+
 
 =head2 awsR53aaaa($zone, $server, $ip, %options)
 
@@ -15918,10 +16042,10 @@ B<Example:>
     ok saveAwsIp(q(example.org));
     ok saveAwsDomain(q(example.org));
     ok awsR53a   (q(XXXXX), q(www.example.org), q(22.12.232.1));
-  
+
     ok awsR53aaaa(q(XXXXX), q(www.example.org), q([1232:1232:1232:1232:1232:1232:1232:1232:]));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsEc2Tag($resource, $name, $value, %options)
 
@@ -15936,27 +16060,28 @@ Tag an elastic compute resource with the supplied tags.
 B<Example:>
 
 
-  
+
     awsEc2Tag  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ("i-xxxx", Name=>q(Conversion), region => q(us-east-2), profile=>q(fmc));
-  
 
-=head2 confirmHasCommandLineCommand($cmd)
+
+=head2 confirmHasCommandLineCommand($cmd, $noComplaints)
 
 Check that the specified b<$cmd> is present on the current system.  Use $ENV{PATH} to add folders containing commands as necessary.
 
-     Parameter  Description
-  1  $cmd       Command to check for
+     Parameter      Description
+  1  $cmd           Command to check for
+  2  $noComplaints  Do not complain if not found if this is true
 
 B<Example:>
 
 
     awsCurrentIp;
-  
+
     confirmHasCommandLineCommand(q(find));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 numberOfCpus($scale)
 
@@ -15968,14 +16093,14 @@ Number of cpus scaled by an optional factor - but only if you have nproc. If you
 B<Example:>
 
 
-  
+
   ok numberOfCpus(8) >= 8, 'ddd';                                                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 ipAddressViaArp($hostName)
 
-Get the ip address of a server on the local network by hostname via arp
+Get the ip address of a server on the local network by hostname via arp.
 
      Parameter  Description
   1  $hostName  Host name
@@ -15983,10 +16108,10 @@ Get the ip address of a server on the local network by hostname via arp
 B<Example:>
 
 
-  
+
     ipAddressViaArp(q(secarias));                                                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 parseS3BucketAndFolderName($name)
 
@@ -15998,21 +16123,21 @@ Parse an L<S3|https://aws.amazon.com/s3/> bucket/folder name into a bucket and a
 B<Example:>
 
 
-  if (1)                                                                          
-  
+  if (1)
+
    {is_deeply [parseS3BucketAndFolderName(q(s3://bbbb/ffff/dddd/))], [qw(bbbb ffff/dddd/)], q(iii);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseS3BucketAndFolderName(q(s3://bbbb/))],           [qw(bbbb), q()];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseS3BucketAndFolderName(q(     bbbb/))],           [qw(bbbb), q()];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseS3BucketAndFolderName(q(     bbbb))],            [qw(bbbb), q()];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    }
-  
+
 
 =head2 saveCodeToS3($saveCodeEvery, $folder, $zipFileName, $bucket, $S3Parms)
 
@@ -16028,10 +16153,10 @@ Save source code every B<$saveCodeEvery> seconds by zipping folder B<$folder> to
 B<Example:>
 
 
-  
+
     saveCodeToS3(1200, q(.), q(projectName), q(bucket/folder), q(--quiet));         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 addCertificate($file)
 
@@ -16043,10 +16168,10 @@ Add a certificate to the current ssh session.
 B<Example:>
 
 
-  
+
     addCertificate(fpf(qw(.ssh cert)));                                             # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 hostName()
 
@@ -16056,10 +16181,10 @@ The name of the host we are running on.
 B<Example:>
 
 
-  
+
     hostName;                                                                       # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 userId($user)
 
@@ -16071,10 +16196,10 @@ Get or confirm the userid we are currently running under.
 B<Example:>
 
 
-  
+
     userId;                                                                         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsTranslateText($string, $language, $cacheFolder, $Options)
 
@@ -16089,10 +16214,10 @@ Translate B<$text> from English to a specified B<$language> using AWS Translate 
 B<Example:>
 
 
-  
+
     ok awsTranslateText("Hello", "it", ".translations/") eq q(Ciao);                # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head1 AWS parallel
 
@@ -16106,12 +16231,12 @@ Returns 1 if we are on AWS else return 0.
 B<Example:>
 
 
-  
+
     ok  onAws;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok !onAwsSecondary;
     ok  onAwsPrimary;
-  
+
 
 =head2 onAwsPrimary()
 
@@ -16123,10 +16248,10 @@ B<Example:>
 
     ok  onAws;
     ok !onAwsSecondary;
-  
+
     ok  onAwsPrimary;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 onAwsSecondary()
 
@@ -16137,11 +16262,11 @@ B<Example:>
 
 
     ok  onAws;
-  
+
     ok !onAwsSecondary;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok  onAwsPrimary;
-  
+
 
 =head2 awsParallelPrimaryInstanceId(%options)
 
@@ -16153,11 +16278,11 @@ Return the instance id of the primary instance. The primary instance is the inst
 B<Example:>
 
 
-  
+
     ok "i-xxx" eq awsParallelPrimaryInstanceId  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      (region => q(us-east-2), profile=>q(fmc));
-  
+
 
 =head2 awsParallelSpreadFolder($folder, %options)
 
@@ -16173,18 +16298,18 @@ B<Example:>
     my $d = temporaryFolder;
     my ($f1, $f2) = map {fpe($d, $_, q(txt))} 1..2;
     my $files = {$f1 => "1111", $f2 => "2222"};
-  
+
     writeFiles($files);
-  
+
     awsParallelSpreadFolder($d);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     clearFolder($d, 3);
-  
+
     awsParallelGatherFolder($d);
     my $r = readFiles($d);
     is_deeply $files, $r;
     clearFolder($d, 3);
-  
+
 
 =head2 awsParallelGatherFolder($folder, %options)
 
@@ -16200,18 +16325,18 @@ B<Example:>
     my $d = temporaryFolder;
     my ($f1, $f2) = map {fpe($d, $_, q(txt))} 1..2;
     my $files = {$f1 => "1111", $f2 => "2222"};
-  
+
     writeFiles($files);
     awsParallelSpreadFolder($d);
     clearFolder($d, 3);
-  
-  
+
+
     awsParallelGatherFolder($d);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $r = readFiles($d);
     is_deeply $files, $r;
     clearFolder($d, 3);
-  
+
 
 =head2 awsParallelPrimaryIpAddress(%options)
 
@@ -16223,14 +16348,14 @@ Return the IP addresses of any primary instance on L<Amazon Web Services|http://
 B<Example:>
 
 
-  
+
     ok awsParallelPrimaryIpAddress eq      q(3.1.4.4);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [awsParallelSecondaryIpAddresses], [qw(3.1.4.5 3.1.4.6)];
-  
+
     is_deeply [awsParallelIpAddresses],  [qw(3.1.4.4 3.1.4.5 3.1.4.6)];
-  
+
 
 =head2 awsParallelSecondaryIpAddresses(%options)
 
@@ -16243,13 +16368,13 @@ B<Example:>
 
 
     ok awsParallelPrimaryIpAddress eq      q(3.1.4.4);
-  
-  
+
+
     is_deeply [awsParallelSecondaryIpAddresses], [qw(3.1.4.5 3.1.4.6)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [awsParallelIpAddresses],  [qw(3.1.4.4 3.1.4.5 3.1.4.6)];
-  
+
 
 =head2 awsParallelIpAddresses(%options)
 
@@ -16262,17 +16387,17 @@ B<Example:>
 
 
     ok awsParallelPrimaryIpAddress eq      q(3.1.4.4);
-  
+
     is_deeply [awsParallelSecondaryIpAddresses], [qw(3.1.4.5 3.1.4.6)];
-  
-  
+
+
     is_deeply [awsParallelIpAddresses],  [qw(3.1.4.4 3.1.4.5 3.1.4.6)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 getCodeContext($sub)
 
-Recreate the code context for a referenced sub
+Recreate the code context for a referenced sub.
 
      Parameter  Description
   1  $sub       Sub reference
@@ -16280,10 +16405,10 @@ Recreate the code context for a referenced sub
 B<Example:>
 
 
-  
+
   ok getCodeContext(\&getCodeContext) =~ m(use strict)ims;                          # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 awsParallelProcessFiles($userData, $parallel, $results, $files, %options)
 
@@ -16302,22 +16427,22 @@ B<Example:>
     my $N = 2001;                                                                 # Number of files to process
     my $options = q(region => q(us-east-2), profile=>q(fmc));                     # Aws cli options
     my %options = eval "($options)";
-  
+
     for my $dir(q(/home/phil/perl/cpan/DataTableText/lib/Data/Table/),            # Folders we will need on aws
                 q(/home/phil/.aws/))
      {awsParallelSpreadFolder($dir, %options);
      }
-  
+
     my $d = temporaryFolder;                                                      # Create a temporary folder
     my $resultsFile = fpe($d, qw(results data));                                  # Save results in this temporary file
-  
+
     if (my $r = execPerlOnRemote(join "
 ",                                       # Execute some code on a server
       getCodeContext(\&awsParallelProcessFilesTestParallel),                      # Get code context of the sub we want to call.
       <<SESSIONLEADER))                                                           # Launch code on session leader
   use Data::Table::Text qw(:all);
-  
-  
+
+
   my \$r = awsParallelProcessFiles                                                # Process files on multiple L<Amazon Web Services|http://aws.amazon.com> instances in parallel  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    ({file=>4, time=>timeStamp},                                                   # User data
@@ -16325,21 +16450,21 @@ B<Example:>
     \\\&Data::Table::Text::awsParallelProcessFilesTestResults,                    # Reference to code to execute in series to merge the results of each parallel computation
     [map {writeFile(fpe(q($d), \$_, qw(txt)), \$_)} 1..$N],                       # Files to process
     $options);                                                                    # Aws cli options as we will be running on Aws
-  
+
   storeFile(q($resultsFile), \$r);                                                # Save results in a file
-  
+
   SESSIONLEADER
-  
+
      {copyFileFromRemote($resultsFile);                                           # Retrieve user data
-  
+
       my $userData = retrieveFile($resultsFile);                                  # Recover user data
       my @i = awsParallelSecondaryIpAddresses(%options);                          # Ip addresses of secondary instances
       my @I = keys $userData->{ip}->%*;
       is_deeply [sort @i], [sort @I];                                             # Each secondary ip address was used
-  
+
       ok $userData->{file}  == 4;                                                 # Prove we can pass data in and get it back
       ok $userData->{merge} == 1 + @i, 'ii';                                      # Number of merges
-  
+
       my %f; my %i;                                                               # Files processed on each ip
       for   my $i(sort keys $userData->{ipFile}->%*)                              # Ip
        {for my $f(sort keys $userData->{ipFile}{$i}->%*)                          # File
@@ -16347,9 +16472,9 @@ B<Example:>
           $i{$i}++;                                                               # Count files on each ip
          }
        }
-  
+
       is_deeply \%f, {map {$_=>1} 1..$N};                                         # Check each file was processed
-  
+
       if (1)
        {my @rc; my @ra;                                                           # Range of number of files processed on each ip - computed, actually counted
         my $l = $N/@i-1;                                                          # Lower limit of number of files per IP address
@@ -16363,16 +16488,16 @@ B<Example:>
         ok @i == grep {$_} @ra;                                                   # Check each ip processed the expected number of files
         ok @i == grep {$_} @rc;
        }
-  
+
       ok $userData->{files}{&fpe($d, qw(4 txt))} eq                               # Check the computed MD5 sum for the specified file
          q(a87ff679a2f3e71d9181a67b7542122c);
      }
-  
+
   if (0)                                                                           # Process files in series on local machine
    {my $N = 42;
     my $d = temporaryFolder;
-  
-  
+
+
     my $r = awsParallelProcessFiles                                               # Process files in series on local machine  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      ({file => 4},                                                                # User data
@@ -16380,17 +16505,17 @@ B<Example:>
       \&Data::Table::Text::awsParallelProcessFilesTestResults,                    # Code to execute in series on the session leader to analyze the results of the parallel runs
       [map {writeFile(fpe($d, $_, qw(txt)), $_)} 1..$N],                          # Files to process
       ());                                                                        # No Aws cli options as we are running locally
-  
+
     ok $r->{file}            ==  4, 'aaa';                                        # Prove we can pass data in and get it back
     ok $r->{merge}           ==  1, 'bbb';                                        # Only one merge as we are running locally
-  
+
     ok $r->{ip}{localHost}   == $N, 'ccc';                                        # Number of files processed locally
     ok keys($r->{files}->%*) == $N;                                               # Number of files processed
     ok $r->{files}{fpe($d, qw(4 txt))} eq q(a87ff679a2f3e71d9181a67b7542122c);    # Check the computed MD5 sum for the specified file
-  
+
     clearFolder($d, $N+2);
    }
-  
+
 
 =head1 S3
 
@@ -16408,16 +16533,16 @@ B<Example:>
 
 
     my %options = (profile => q(fmc));
-  
+
     s3DownloadFolder
      (q(s3://bucket/folder/), q(home/phil/s3/folder/), %options, delete=>1);
-  
+
     s3ZipFolder ( q(home/phil/s3/folder/) => q(s3://bucket/folder/),  %options);
-  
+
     s3ZipFolders({q(home/phil/s3/folder/) => q(s3://bucket/folder/)}, %options);
-  
+
     is_deeply
-  
+
      {s3ListFilesAndSizes(q(s3://salesforce.dita/originals4/images), %options)  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      },
@@ -16434,33 +16559,33 @@ B<Example:>
         "01:25:04",
        ],
      };
-  
+
     my $data = q(0123456789);
     my $file = q(s3://salesforce.dita/zzz/111.txt);
-  
+
     if (1)
      {       s3WriteString($file, $data, %options);
       my $r = s3ReadString($file,        %options);
       ok $r eq $data;
      }
-  
+
     if (1)
      {my @r = s3FileExists($file, %options);
       ok $r[0] eq "zzz/111.txt";
       ok $r[1] ==  10;
      }
-  
+
     if (1)
      {my $d = $data x 2;
       my $f = writeFile(undef, $d);
-  
+
       s3WriteFile($file, $f, %options);
       unlink $f;
       s3ReadFile ($file, $f, %options);
       ok readFile($f) eq $d;
       unlink $f;
      }
-  
+
 
 =head2 s3FileExists($file, %options)
 
@@ -16474,14 +16599,14 @@ B<Example:>
 
 
     my %options = (profile => q(fmc));
-  
+
     s3DownloadFolder
      (q(s3://bucket/folder/), q(home/phil/s3/folder/), %options, delete=>1);
-  
+
     s3ZipFolder ( q(home/phil/s3/folder/) => q(s3://bucket/folder/),  %options);
-  
+
     s3ZipFolders({q(home/phil/s3/folder/) => q(s3://bucket/folder/)}, %options);
-  
+
     is_deeply
      {s3ListFilesAndSizes(q(s3://salesforce.dita/originals4/images), %options)
      },
@@ -16498,35 +16623,35 @@ B<Example:>
         "01:25:04",
        ],
      };
-  
+
     my $data = q(0123456789);
     my $file = q(s3://salesforce.dita/zzz/111.txt);
-  
+
     if (1)
      {       s3WriteString($file, $data, %options);
       my $r = s3ReadString($file,        %options);
       ok $r eq $data;
      }
-  
+
     if (1)
-  
+
      {my @r = s3FileExists($file, %options);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       ok $r[0] eq "zzz/111.txt";
       ok $r[1] ==  10;
      }
-  
+
     if (1)
      {my $d = $data x 2;
       my $f = writeFile(undef, $d);
-  
+
       s3WriteFile($file, $f, %options);
       unlink $f;
       s3ReadFile ($file, $f, %options);
       ok readFile($f) eq $d;
       unlink $f;
      }
-  
+
 
 =head2 s3WriteFile($fileS3, $fileLocal, %options)
 
@@ -16541,14 +16666,14 @@ B<Example:>
 
 
     my %options = (profile => q(fmc));
-  
+
     s3DownloadFolder
      (q(s3://bucket/folder/), q(home/phil/s3/folder/), %options, delete=>1);
-  
+
     s3ZipFolder ( q(home/phil/s3/folder/) => q(s3://bucket/folder/),  %options);
-  
+
     s3ZipFolders({q(home/phil/s3/folder/) => q(s3://bucket/folder/)}, %options);
-  
+
     is_deeply
      {s3ListFilesAndSizes(q(s3://salesforce.dita/originals4/images), %options)
      },
@@ -16565,27 +16690,27 @@ B<Example:>
         "01:25:04",
        ],
      };
-  
+
     my $data = q(0123456789);
     my $file = q(s3://salesforce.dita/zzz/111.txt);
-  
+
     if (1)
      {       s3WriteString($file, $data, %options);
       my $r = s3ReadString($file,        %options);
       ok $r eq $data;
      }
-  
+
     if (1)
      {my @r = s3FileExists($file, %options);
       ok $r[0] eq "zzz/111.txt";
       ok $r[1] ==  10;
      }
-  
+
     if (1)
      {my $d = $data x 2;
       my $f = writeFile(undef, $d);
-  
-  
+
+
       s3WriteFile($file, $f, %options);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       unlink $f;
@@ -16593,7 +16718,7 @@ B<Example:>
       ok readFile($f) eq $d;
       unlink $f;
      }
-  
+
 
 =head2 s3WriteString($file, $string, %options)
 
@@ -16608,14 +16733,14 @@ B<Example:>
 
 
     my %options = (profile => q(fmc));
-  
+
     s3DownloadFolder
      (q(s3://bucket/folder/), q(home/phil/s3/folder/), %options, delete=>1);
-  
+
     s3ZipFolder ( q(home/phil/s3/folder/) => q(s3://bucket/folder/),  %options);
-  
+
     s3ZipFolders({q(home/phil/s3/folder/) => q(s3://bucket/folder/)}, %options);
-  
+
     is_deeply
      {s3ListFilesAndSizes(q(s3://salesforce.dita/originals4/images), %options)
      },
@@ -16632,35 +16757,35 @@ B<Example:>
         "01:25:04",
        ],
      };
-  
+
     my $data = q(0123456789);
     my $file = q(s3://salesforce.dita/zzz/111.txt);
-  
+
     if (1)
-  
+
      {       s3WriteString($file, $data, %options);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       my $r = s3ReadString($file,        %options);
       ok $r eq $data;
      }
-  
+
     if (1)
      {my @r = s3FileExists($file, %options);
       ok $r[0] eq "zzz/111.txt";
       ok $r[1] ==  10;
      }
-  
+
     if (1)
      {my $d = $data x 2;
       my $f = writeFile(undef, $d);
-  
+
       s3WriteFile($file, $f, %options);
       unlink $f;
       s3ReadFile ($file, $f, %options);
       ok readFile($f) eq $d;
       unlink $f;
      }
-  
+
 
 =head2 s3ReadFile($file, $local, %options)
 
@@ -16675,14 +16800,14 @@ B<Example:>
 
 
     my %options = (profile => q(fmc));
-  
+
     s3DownloadFolder
      (q(s3://bucket/folder/), q(home/phil/s3/folder/), %options, delete=>1);
-  
+
     s3ZipFolder ( q(home/phil/s3/folder/) => q(s3://bucket/folder/),  %options);
-  
+
     s3ZipFolders({q(home/phil/s3/folder/) => q(s3://bucket/folder/)}, %options);
-  
+
     is_deeply
      {s3ListFilesAndSizes(q(s3://salesforce.dita/originals4/images), %options)
      },
@@ -16699,35 +16824,35 @@ B<Example:>
         "01:25:04",
        ],
      };
-  
+
     my $data = q(0123456789);
     my $file = q(s3://salesforce.dita/zzz/111.txt);
-  
+
     if (1)
      {       s3WriteString($file, $data, %options);
       my $r = s3ReadString($file,        %options);
       ok $r eq $data;
      }
-  
+
     if (1)
      {my @r = s3FileExists($file, %options);
       ok $r[0] eq "zzz/111.txt";
       ok $r[1] ==  10;
      }
-  
+
     if (1)
      {my $d = $data x 2;
       my $f = writeFile(undef, $d);
-  
+
       s3WriteFile($file, $f, %options);
       unlink $f;
-  
+
       s3ReadFile ($file, $f, %options);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       ok readFile($f) eq $d;
       unlink $f;
      }
-  
+
 
 =head2 s3ReadString($file, %options)
 
@@ -16741,14 +16866,14 @@ B<Example:>
 
 
     my %options = (profile => q(fmc));
-  
+
     s3DownloadFolder
      (q(s3://bucket/folder/), q(home/phil/s3/folder/), %options, delete=>1);
-  
+
     s3ZipFolder ( q(home/phil/s3/folder/) => q(s3://bucket/folder/),  %options);
-  
+
     s3ZipFolders({q(home/phil/s3/folder/) => q(s3://bucket/folder/)}, %options);
-  
+
     is_deeply
      {s3ListFilesAndSizes(q(s3://salesforce.dita/originals4/images), %options)
      },
@@ -16765,35 +16890,35 @@ B<Example:>
         "01:25:04",
        ],
      };
-  
+
     my $data = q(0123456789);
     my $file = q(s3://salesforce.dita/zzz/111.txt);
-  
+
     if (1)
      {       s3WriteString($file, $data, %options);
-  
+
       my $r = s3ReadString($file,        %options);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       ok $r eq $data;
      }
-  
+
     if (1)
      {my @r = s3FileExists($file, %options);
       ok $r[0] eq "zzz/111.txt";
       ok $r[1] ==  10;
      }
-  
+
     if (1)
      {my $d = $data x 2;
       my $f = writeFile(undef, $d);
-  
+
       s3WriteFile($file, $f, %options);
       unlink $f;
       s3ReadFile ($file, $f, %options);
       ok readFile($f) eq $d;
       unlink $f;
      }
-  
+
 
 =head2 s3DownloadFolder($folder, $local, %options)
 
@@ -16808,16 +16933,16 @@ B<Example:>
 
 
     my %options = (profile => q(fmc));
-  
-  
+
+
     s3DownloadFolder  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      (q(s3://bucket/folder/), q(home/phil/s3/folder/), %options, delete=>1);
-  
+
     s3ZipFolder ( q(home/phil/s3/folder/) => q(s3://bucket/folder/),  %options);
-  
+
     s3ZipFolders({q(home/phil/s3/folder/) => q(s3://bucket/folder/)}, %options);
-  
+
     is_deeply
      {s3ListFilesAndSizes(q(s3://salesforce.dita/originals4/images), %options)
      },
@@ -16834,33 +16959,33 @@ B<Example:>
         "01:25:04",
        ],
      };
-  
+
     my $data = q(0123456789);
     my $file = q(s3://salesforce.dita/zzz/111.txt);
-  
+
     if (1)
      {       s3WriteString($file, $data, %options);
       my $r = s3ReadString($file,        %options);
       ok $r eq $data;
      }
-  
+
     if (1)
      {my @r = s3FileExists($file, %options);
       ok $r[0] eq "zzz/111.txt";
       ok $r[1] ==  10;
      }
-  
+
     if (1)
      {my $d = $data x 2;
       my $f = writeFile(undef, $d);
-  
+
       s3WriteFile($file, $f, %options);
       unlink $f;
       s3ReadFile ($file, $f, %options);
       ok readFile($f) eq $d;
       unlink $f;
      }
-  
+
 
 =head2 s3ZipFolder($source, $target, %options)
 
@@ -16874,21 +16999,21 @@ Zip the specified B<$source> folder and write it to the named B<$target> file on
 B<Example:>
 
 
-  
+
     s3ZipFolder(q(home/phil/r/), q(s3://bucket/r.zip));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     my %options = (profile => q(fmc));
-  
+
     s3DownloadFolder
      (q(s3://bucket/folder/), q(home/phil/s3/folder/), %options, delete=>1);
-  
-  
+
+
     s3ZipFolder ( q(home/phil/s3/folder/) => q(s3://bucket/folder/),  %options);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     s3ZipFolders({q(home/phil/s3/folder/) => q(s3://bucket/folder/)}, %options);
-  
+
     is_deeply
      {s3ListFilesAndSizes(q(s3://salesforce.dita/originals4/images), %options)
      },
@@ -16905,33 +17030,33 @@ B<Example:>
         "01:25:04",
        ],
      };
-  
+
     my $data = q(0123456789);
     my $file = q(s3://salesforce.dita/zzz/111.txt);
-  
+
     if (1)
      {       s3WriteString($file, $data, %options);
       my $r = s3ReadString($file,        %options);
       ok $r eq $data;
      }
-  
+
     if (1)
      {my @r = s3FileExists($file, %options);
       ok $r[0] eq "zzz/111.txt";
       ok $r[1] ==  10;
      }
-  
+
     if (1)
      {my $d = $data x 2;
       my $f = writeFile(undef, $d);
-  
+
       s3WriteFile($file, $f, %options);
       unlink $f;
       s3ReadFile ($file, $f, %options);
       ok readFile($f) eq $d;
       unlink $f;
      }
-  
+
 
 =head2 s3ZipFolders($map, %options)
 
@@ -16945,16 +17070,16 @@ B<Example:>
 
 
     my %options = (profile => q(fmc));
-  
+
     s3DownloadFolder
      (q(s3://bucket/folder/), q(home/phil/s3/folder/), %options, delete=>1);
-  
+
     s3ZipFolder ( q(home/phil/s3/folder/) => q(s3://bucket/folder/),  %options);
-  
-  
+
+
     s3ZipFolders({q(home/phil/s3/folder/) => q(s3://bucket/folder/)}, %options);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply
      {s3ListFilesAndSizes(q(s3://salesforce.dita/originals4/images), %options)
      },
@@ -16971,33 +17096,33 @@ B<Example:>
         "01:25:04",
        ],
      };
-  
+
     my $data = q(0123456789);
     my $file = q(s3://salesforce.dita/zzz/111.txt);
-  
+
     if (1)
      {       s3WriteString($file, $data, %options);
       my $r = s3ReadString($file,        %options);
       ok $r eq $data;
      }
-  
+
     if (1)
      {my @r = s3FileExists($file, %options);
       ok $r[0] eq "zzz/111.txt";
       ok $r[1] ==  10;
      }
-  
+
     if (1)
      {my $d = $data x 2;
       my $f = writeFile(undef, $d);
-  
+
       s3WriteFile($file, $f, %options);
       unlink $f;
       s3ReadFile ($file, $f, %options);
       ok readFile($f) eq $d;
       unlink $f;
      }
-  
+
 
 =head1 GitHub
 
@@ -17014,10 +17139,10 @@ Get the contents of a public repo on GitHub and place them in a temporary folder
 B<Example:>
 
 
-  
+
        downloadGitHubPublicRepo(q(philiprbrenan), q(psr));                          # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 downloadGitHubPublicRepoFile($user, $repo, $file)
 
@@ -17031,10 +17156,10 @@ Get the contents of a B<$user> B<$repo> B<$file> from  a public repo on GitHub a
 B<Example:>
 
 
-  
+
     ok &downloadGitHubPublicRepoFile(qw(philiprbrenan pleaseChangeDita index.html));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head1 Processes
 
@@ -17053,12 +17178,12 @@ B<Example:>
 
 
     my %pids;
-  
+
     sub{startProcess {} %pids, 1; ok 1 >= keys %pids}->() for 1..8;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     waitForAllStartedProcessesToFinish(%pids);
     ok !keys(%pids)
-  
+
 
 =head2 waitForAllStartedProcessesToFinish($pids)
 
@@ -17072,11 +17197,11 @@ B<Example:>
 
     my %pids;
     sub{startProcess {} %pids, 1; ok 1 >= keys %pids}->() for 1..8;
-  
+
     waitForAllStartedProcessesToFinish(%pids);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok !keys(%pids)
-  
+
 
 =head2 newProcessStarter($maximumNumberOfProcesses, %options)
 
@@ -17089,30 +17214,30 @@ Create a new L<process starter|/Data::Table::Text::Starter Definition> with whic
 B<Example:>
 
 
-  if (1)                                                                            
+  if (1)
    {my $N = 100;
     my $l = q(logFile.txt);
     unlink $l;
-  
+
     my $s = newProcessStarter(4);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
        $s->processingTitle   = q(Test processes);
        $s->totalToBeStarted  = $N;
        $s->processingLogFile = $l;
-  
+
     for my $i(1..$N)
      {Data::Table::Text::Starter::start($s, sub{$i*$i});
      }
-  
+
     is_deeply
      [sort {$a <=> $b} Data::Table::Text::Starter::finish($s)],
      [map {$_**2} 1..$N];
-  
+
     ok readFile($l) =~ m(Finished $N processes for: Test processes)s;
     clearFolder($s->transferArea, 1e3);
     unlink $l;
    }
-  
+
 
 =head2 Data::Table::Text::Starter::start($starter, $sub)
 
@@ -17125,7 +17250,7 @@ Start a new process to run the specified B<$sub>.
 B<Example:>
 
 
-  if (1)                                                                            
+  if (1)
    {my $N = 100;
     my $l = q(logFile.txt);
     unlink $l;
@@ -17133,22 +17258,22 @@ B<Example:>
        $s->processingTitle   = q(Test processes);
        $s->totalToBeStarted  = $N;
        $s->processingLogFile = $l;
-  
+
     for my $i(1..$N)
-  
+
      {Data::Table::Text::Starter::start($s, sub{$i*$i});  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      }
-  
+
     is_deeply
      [sort {$a <=> $b} Data::Table::Text::Starter::finish($s)],
      [map {$_**2} 1..$N];
-  
+
     ok readFile($l) =~ m(Finished $N processes for: Test processes)s;
     clearFolder($s->transferArea, 1e3);
     unlink $l;
    }
-  
+
 
 =head2 Data::Table::Text::Starter::finish($starter)
 
@@ -17160,7 +17285,7 @@ Wait for all started processes to finish and return their results as an array.
 B<Example:>
 
 
-  if (1)                                                                            
+  if (1)
    {my $N = 100;
     my $l = q(logFile.txt);
     unlink $l;
@@ -17168,22 +17293,22 @@ B<Example:>
        $s->processingTitle   = q(Test processes);
        $s->totalToBeStarted  = $N;
        $s->processingLogFile = $l;
-  
+
     for my $i(1..$N)
      {Data::Table::Text::Starter::start($s, sub{$i*$i});
      }
-  
+
     is_deeply
-  
+
      [sort {$a <=> $b} Data::Table::Text::Starter::finish($s)],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      [map {$_**2} 1..$N];
-  
+
     ok readFile($l) =~ m(Finished $N processes for: Test processes)s;
     clearFolder($s->transferArea, 1e3);
     unlink $l;
    }
-  
+
 
 =head2 squareArray(@array)
 
@@ -17195,53 +17320,53 @@ Create a two dimensional square array from a one dimensional linear array.
 B<Example:>
 
 
-  
+
     is_deeply [squareArray @{[1..4]} ], [[1, 2], [3, 4]];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [squareArray @{[1..22]}],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
      [[1 .. 5], [6 .. 10], [11 .. 15], [16 .. 20], [21, 22]];
-  
-  
+
+
     is_deeply [1..$_], [deSquareArray squareArray @{[1..$_]}] for 1..22;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok $_ == countSquareArray         squareArray @{[1..$_]}  for 222;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [rectangularArray(3, 1..11)],
               [[1, 4, 7, 10],
                [2, 5, 8, 11],
                [3, 6, 9]];
-  
+
     is_deeply [rectangularArray(3, 1..12)],
               [[1, 4, 7, 10],
                [2, 5, 8, 11],
                [3, 6, 9, 12]];
-  
+
     is_deeply [rectangularArray(3, 1..13)],
               [[1, 4, 7, 10, 13],
                [2, 5, 8, 11],
                [3, 6, 9, 12]];
-  
+
     is_deeply [rectangularArray2(3, 1..5)],
               [[1, 2, 3],
                [4, 5]];
-  
+
     is_deeply [rectangularArray2(3, 1..6)],
               [[1, 2, 3],
                [4, 5, 6]];
-  
+
     is_deeply [rectangularArray2(3, 1..7)],
               [[1, 2, 3],
                [4, 5, 6],
                [7]];
-  
+
 
 =head2 deSquareArray(@square)
 
-Create a one dimensional array from a two dimensional array of arrays
+Create a one dimensional array from a two dimensional array of arrays.
 
      Parameter  Description
   1  @square    Array of arrays
@@ -17252,40 +17377,40 @@ B<Example:>
     is_deeply [squareArray @{[1..4]} ], [[1, 2], [3, 4]];
     is_deeply [squareArray @{[1..22]}],
      [[1 .. 5], [6 .. 10], [11 .. 15], [16 .. 20], [21, 22]];
-  
-  
+
+
     is_deeply [1..$_], [deSquareArray squareArray @{[1..$_]}] for 1..22;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     ok $_ == countSquareArray         squareArray @{[1..$_]}  for 222;
-  
+
     is_deeply [rectangularArray(3, 1..11)],
               [[1, 4, 7, 10],
                [2, 5, 8, 11],
                [3, 6, 9]];
-  
+
     is_deeply [rectangularArray(3, 1..12)],
               [[1, 4, 7, 10],
                [2, 5, 8, 11],
                [3, 6, 9, 12]];
-  
+
     is_deeply [rectangularArray(3, 1..13)],
               [[1, 4, 7, 10, 13],
                [2, 5, 8, 11],
                [3, 6, 9, 12]];
-  
+
     is_deeply [rectangularArray2(3, 1..5)],
               [[1, 2, 3],
                [4, 5]];
-  
+
     is_deeply [rectangularArray2(3, 1..6)],
               [[1, 2, 3],
                [4, 5, 6]];
-  
+
     is_deeply [rectangularArray2(3, 1..7)],
               [[1, 2, 3],
                [4, 5, 6],
                [7]];
-  
+
 
 =head2 rectangularArray($first, @array)
 
@@ -17301,44 +17426,44 @@ B<Example:>
     is_deeply [squareArray @{[1..4]} ], [[1, 2], [3, 4]];
     is_deeply [squareArray @{[1..22]}],
      [[1 .. 5], [6 .. 10], [11 .. 15], [16 .. 20], [21, 22]];
-  
+
     is_deeply [1..$_], [deSquareArray squareArray @{[1..$_]}] for 1..22;
     ok $_ == countSquareArray         squareArray @{[1..$_]}  for 222;
-  
-  
+
+
     is_deeply [rectangularArray(3, 1..11)],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
               [[1, 4, 7, 10],
                [2, 5, 8, 11],
                [3, 6, 9]];
-  
-  
+
+
     is_deeply [rectangularArray(3, 1..12)],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
               [[1, 4, 7, 10],
                [2, 5, 8, 11],
                [3, 6, 9, 12]];
-  
-  
+
+
     is_deeply [rectangularArray(3, 1..13)],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
               [[1, 4, 7, 10, 13],
                [2, 5, 8, 11],
                [3, 6, 9, 12]];
-  
+
     is_deeply [rectangularArray2(3, 1..5)],
               [[1, 2, 3],
                [4, 5]];
-  
+
     is_deeply [rectangularArray2(3, 1..6)],
               [[1, 2, 3],
                [4, 5, 6]];
-  
+
     is_deeply [rectangularArray2(3, 1..7)],
               [[1, 2, 3],
                [4, 5, 6],
                [7]];
-  
+
 
 =head2 rectangularArray2($second, @array)
 
@@ -17354,44 +17479,44 @@ B<Example:>
     is_deeply [squareArray @{[1..4]} ], [[1, 2], [3, 4]];
     is_deeply [squareArray @{[1..22]}],
      [[1 .. 5], [6 .. 10], [11 .. 15], [16 .. 20], [21, 22]];
-  
+
     is_deeply [1..$_], [deSquareArray squareArray @{[1..$_]}] for 1..22;
     ok $_ == countSquareArray         squareArray @{[1..$_]}  for 222;
-  
+
     is_deeply [rectangularArray(3, 1..11)],
               [[1, 4, 7, 10],
                [2, 5, 8, 11],
                [3, 6, 9]];
-  
+
     is_deeply [rectangularArray(3, 1..12)],
               [[1, 4, 7, 10],
                [2, 5, 8, 11],
                [3, 6, 9, 12]];
-  
+
     is_deeply [rectangularArray(3, 1..13)],
               [[1, 4, 7, 10, 13],
                [2, 5, 8, 11],
                [3, 6, 9, 12]];
-  
-  
+
+
     is_deeply [rectangularArray2(3, 1..5)],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
               [[1, 2, 3],
                [4, 5]];
-  
-  
+
+
     is_deeply [rectangularArray2(3, 1..6)],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
               [[1, 2, 3],
                [4, 5, 6]];
-  
-  
+
+
     is_deeply [rectangularArray2(3, 1..7)],  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
               [[1, 2, 3],
                [4, 5, 6],
                [7]];
-  
+
 
 =head2 callSubInParallel($sub)
 
@@ -17404,22 +17529,22 @@ B<Example:>
 
 
     my %a = (a=>1, b=>2);
-  
+
     my %b = callSubInParallel {return %a};  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply \%a, \%b;
-  
+
     my $f = temporaryFile;
     ok -e $f;
-  
+
     my $a = callSubInOverlappedParallel
       sub {$a{a}++; owf($f, "Hello World")},
       sub {q(aaaa)};
-  
+
     ok $a           =~ m(aaaa)i;
     ok $a{a}        == 1;
     ok readFile($f) =~ m(Hello World)i;
-  
+
 
 =head2 callSubInOverlappedParallel($child, $parent)
 
@@ -17435,20 +17560,20 @@ B<Example:>
     my %a = (a=>1, b=>2);
     my %b = callSubInParallel {return %a};
     is_deeply \%a, \%b;
-  
+
     my $f = temporaryFile;
     ok -e $f;
-  
-  
+
+
     my $a = callSubInOverlappedParallel  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       sub {$a{a}++; owf($f, "Hello World")},
       sub {q(aaaa)};
-  
+
     ok $a           =~ m(aaaa)i;
     ok $a{a}        == 1;
     ok readFile($f) =~ m(Hello World)i;
-  
+
 
 =head2 runInParallel($maximumNumberOfProcesses, $parallel, $results, @array)
 
@@ -17457,7 +17582,7 @@ Process the elements of an array in parallel using a maximum of B<$maximumNumber
      Parameter                  Description
   1  $maximumNumberOfProcesses  Maximum number of processes
   2  $parallel                  Parallel sub
-  3  $results                   Results sub
+  3  $results                   Optional sub to process results
   4  @array                     Array of items to process
 
 B<Example:>
@@ -17466,17 +17591,17 @@ B<Example:>
     my @N = 1..100;
     my $N = 100;
     my $R = 0; $R += $_*$_ for 1..$N;
-  
+
     ok 338350 == $R;
-  
+
     ok $R == runInSquareRootParallel
        (4,
         sub {my ($p) = @_; $p * $p},
         sub {my $p = 0; $p += $_ for @_; $p},
         @{[1..$N]}
        );
-  
-  
+
+
     ok $R == runInParallel  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
        (4,
@@ -17484,11 +17609,11 @@ B<Example:>
         sub {my $p = 0; $p += $_ for @_; $p},
         @{[1..$N]}
        );
-  
+
 
 =head2 runInSquareRootParallel($maximumNumberOfProcesses, $parallel, $results, @array)
 
-Process the elements of an array in square root parallel using a maximum of B<$maximumNumberOfProcesses> processes. sub B<&$parallel> is forked to process each block of array elements in parallel. The results returned by the forked copies of &$parallel are presented as a single array to sub B<&$results> which is run in series. B<@array> contains the elements to be processed. Returns the result returned by &$results..
+Process the elements of an array in square root parallel using a maximum of B<$maximumNumberOfProcesses> processes. sub B<&$parallel> is forked to process each block of array elements in parallel. The results returned by the forked copies of &$parallel are presented as a single array to sub B<&$results> which is run in series. B<@array> contains the elements to be processed. Returns the result returned by &$results.
 
      Parameter                  Description
   1  $maximumNumberOfProcesses  Maximum number of processes
@@ -17502,10 +17627,10 @@ B<Example:>
     my @N = 1..100;
     my $N = 100;
     my $R = 0; $R += $_*$_ for 1..$N;
-  
+
     ok 338350 == $R;
-  
-  
+
+
     ok $R == runInSquareRootParallel  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
        (4,
@@ -17513,14 +17638,14 @@ B<Example:>
         sub {my $p = 0; $p += $_ for @_; $p},
         @{[1..$N]}
        );
-  
+
     ok $R == runInParallel
        (4,
         sub {my ($p) = @_; $p * $p},
         sub {my $p = 0; $p += $_ for @_; $p},
         @{[1..$N]}
        );
-  
+
 
 =head2 packBySize($N, @sizes)
 
@@ -17535,7 +17660,7 @@ B<Example:>
 
     my $M = 7;
     my $N = 15;
-  
+
     my @b = packBySize($M, map {[$_, $_]} 1..$N);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my @B; my $B = 0;
@@ -17549,11 +17674,11 @@ B<Example:>
      }
     ok $B == $N * ($N + 1) / 2;
     is_deeply [@B], [16, 20, 16, 18, 16, 18, 16];
-  
+
 
 =head2 processSizesInParallel($parallel, $results, @sizes)
 
-Process items of known size in parallel using (8 * the number of CPUs) processes with the process each item is assigned to depending on the size of the item so that each process is loaded with approximately the same number of bytes of data in total from the items it processes. 
+Process items of known size in parallel using (8 * the number of CPUs) processes with the process each item is assigned to depending on the size of the item so that each process is loaded with approximately the same number of bytes of data in total from the items it processes.
 
 Each item is processed by sub B<$parallel> and the results of processing all items is processed by B<$results> where the items are taken from B<@sizes>. Each &$parallel() receives an item from @files. &$results() receives an array of all the results returned by &$parallel().
 
@@ -17567,13 +17692,13 @@ B<Example:>
 
     my $d = temporaryFolder;
     my @f = map {owf(fpe($d, $_, q(txt)), 'X' x ($_ ** 2 % 11))} 1..9;
-  
+
     my $f = fileLargestSize(@f);
     ok fn($f) eq '3', 'aaa';
-  
+
   #  my $b = folderSize($d);                                                       # Needs du
   #  ok $b > 0, 'bbb';
-  
+
     my $c = processFilesInParallel(
       sub
        {my ($file) = @_;
@@ -17582,10 +17707,10 @@ B<Example:>
       sub
        {scalar @_;
        }, (@f) x 12);
-  
+
     ok 108 == $c, 'cc11';
-  
-  
+
+
     my $C = processSizesInParallel  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       sub
@@ -17595,9 +17720,9 @@ B<Example:>
       sub
        {scalar @_;
        }, map {[fileSize($_), $_]} (@f) x 12;
-  
+
     ok 108 == $C, 'cc2';
-  
+
     my $J = processJavaFilesInParallel
       sub
        {my ($file) = @_;
@@ -17606,15 +17731,15 @@ B<Example:>
       sub
        {scalar @_;
        }, (@f) x 12;
-  
+
     ok 108 == $J, 'cc3';
-  
+
     clearFolder($d, 12);
-  
+
 
 =head2 processFilesInParallel($parallel, $results, @files)
 
-Process files in parallel using (8 * the number of CPUs) processes with the process each file is assigned to depending on the size of the file so that each process is loaded with approximately the same number of bytes of data in total from the files it processes. 
+Process files in parallel using (8 * the number of CPUs) processes with the process each file is assigned to depending on the size of the file so that each process is loaded with approximately the same number of bytes of data in total from the files it processes.
 
 Each file is processed by sub B<$parallel> and the results of processing all files is processed by B<$results> where the files are taken from B<@files>. Each B<&$parallel> receives a file from B<@files>. B<&$results> receives an array of all the results returned by B<&$parallel>.
 
@@ -17628,14 +17753,14 @@ B<Example:>
 
     my $d = temporaryFolder;
     my @f = map {owf(fpe($d, $_, q(txt)), 'X' x ($_ ** 2 % 11))} 1..9;
-  
+
     my $f = fileLargestSize(@f);
     ok fn($f) eq '3', 'aaa';
-  
+
   #  my $b = folderSize($d);                                                       # Needs du
   #  ok $b > 0, 'bbb';
-  
-  
+
+
     my $c = processFilesInParallel(  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       sub
@@ -17645,9 +17770,9 @@ B<Example:>
       sub
        {scalar @_;
        }, (@f) x 12);
-  
+
     ok 108 == $c, 'cc11';
-  
+
     my $C = processSizesInParallel
       sub
        {my ($file) = @_;
@@ -17656,9 +17781,9 @@ B<Example:>
       sub
        {scalar @_;
        }, map {[fileSize($_), $_]} (@f) x 12;
-  
+
     ok 108 == $C, 'cc2';
-  
+
     my $J = processJavaFilesInParallel
       sub
        {my ($file) = @_;
@@ -17667,15 +17792,15 @@ B<Example:>
       sub
        {scalar @_;
        }, (@f) x 12;
-  
+
     ok 108 == $J, 'cc3';
-  
+
     clearFolder($d, 12);
-  
+
 
 =head2 processJavaFilesInParallel($parallel, $results, @files)
 
-Process java files of known size in parallel using (the number of CPUs) processes with the process each item is assigned to depending on the size of the java item so that each process is loaded with approximately the same number of bytes of data in total from the java files it processes. 
+Process java files of known size in parallel using (the number of CPUs) processes with the process each item is assigned to depending on the size of the java item so that each process is loaded with approximately the same number of bytes of data in total from the java files it processes.
 
 Each java item is processed by sub B<$parallel> and the results of processing all java files is processed by B<$results> where the java files are taken from B<@sizes>. Each &$parallel() receives a java item from @files. &$results() receives an array of all the results returned by &$parallel().
 
@@ -17689,13 +17814,13 @@ B<Example:>
 
     my $d = temporaryFolder;
     my @f = map {owf(fpe($d, $_, q(txt)), 'X' x ($_ ** 2 % 11))} 1..9;
-  
+
     my $f = fileLargestSize(@f);
     ok fn($f) eq '3', 'aaa';
-  
+
   #  my $b = folderSize($d);                                                       # Needs du
   #  ok $b > 0, 'bbb';
-  
+
     my $c = processFilesInParallel(
       sub
        {my ($file) = @_;
@@ -17704,9 +17829,9 @@ B<Example:>
       sub
        {scalar @_;
        }, (@f) x 12);
-  
+
     ok 108 == $c, 'cc11';
-  
+
     my $C = processSizesInParallel
       sub
        {my ($file) = @_;
@@ -17715,10 +17840,10 @@ B<Example:>
       sub
        {scalar @_;
        }, map {[fileSize($_), $_]} (@f) x 12;
-  
+
     ok 108 == $C, 'cc2';
-  
-  
+
+
     my $J = processJavaFilesInParallel  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       sub
@@ -17728,11 +17853,11 @@ B<Example:>
       sub
        {scalar @_;
        }, (@f) x 12;
-  
+
     ok 108 == $J, 'cc3';
-  
+
     clearFolder($d, 12);
-  
+
 
 =head2 syncFromS3InParallel($maxSize, $source, $target, $Profile, $options)
 
@@ -17748,20 +17873,20 @@ Download from L<S3|https://aws.amazon.com/s3/> by using "aws s3 sync --exclude '
 B<Example:>
 
 
-  if (0)                                                                           
-  
+  if (0)
+
    {syncFromS3InParallel 1e5,  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       q(xxx/originals3/),
       q(/home/phil/xxx/),
       q(phil), q(--quiet);
-  
+
     syncToS3InParallel 1e5,
       q(/home/phil/xxx/),
       q(xxx/originals3/),
       q(phil), q(--quiet);
    }
-  
+
 
 =head2 syncToS3InParallel($maxSize, $source, $target, $Profile, $options)
 
@@ -17777,20 +17902,20 @@ Upload to L<S3|https://aws.amazon.com/s3/> by using "aws s3 sync --exclude '*' -
 B<Example:>
 
 
-  if (0)                                                                           
+  if (0)
    {syncFromS3InParallel 1e5,
       q(xxx/originals3/),
       q(/home/phil/xxx/),
       q(phil), q(--quiet);
-  
-  
+
+
     syncToS3InParallel 1e5,  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       q(/home/phil/xxx/),
       q(xxx/originals3/),
       q(phil), q(--quiet);
    }
-  
+
 
 =head2 childPids($p)
 
@@ -17802,10 +17927,10 @@ Recursively find the pids of all the sub processes of a B<$process> and all thei
 B<Example:>
 
 
-  
+
     is_deeply [childPids(2702)], [2702..2705];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 newServiceIncarnation($service, $file)
 
@@ -17818,12 +17943,12 @@ Create a new service incarnation to record the start up of a new instance of a s
 B<Example:>
 
 
-  if (1)                                                                           
-  
+  if (1)
+
    {my $s = newServiceIncarnation("aaa", q(bbb.txt));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply $s->check, $s;
-  
+
     my $t = newServiceIncarnation("aaa", q(bbb.txt));  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     is_deeply $t->check, $t;
@@ -17831,7 +17956,7 @@ B<Example:>
     ok !$s->check(1);
     unlink q(bbb.txt);
    }
-  
+
 
 =head2 Data::Exchange::Service::check($service, $continue)
 
@@ -17844,7 +17969,7 @@ Check that we are the current incarnation of the named service with details obta
 B<Example:>
 
 
-  if (1)                                                                           
+  if (1)
    {my $s = newServiceIncarnation("aaa", q(bbb.txt));
     is_deeply $s->check, $s;
     my $t = newServiceIncarnation("aaa", q(bbb.txt));
@@ -17853,7 +17978,7 @@ B<Example:>
     ok !$s->check(1);
     unlink q(bbb.txt);
    }
-  
+
 
 =head1 Conversions
 
@@ -17861,7 +17986,7 @@ Perform various conversions from STDIN to STDOUT
 
 =head2 convertPerlToJavaScript($in, $out)
 
-Convert Perl to Javascript
+Convert Perl to Javascript.
 
      Parameter  Description
   1  $in        Input file name or STDIN if undef
@@ -17870,13 +17995,13 @@ Convert Perl to Javascript
 B<Example:>
 
 
-  if (1)                                                                          
+  if (1)
    {my $i = writeTempFile(<<'END');
-  sub test($$)                                                                    #P A test method
+  sub test($$)                                                                    #P A test method.
    {my ($file, $data) = @_;                                                       # Parameter 1, parameter 2
     if (fullyQualifiedFile($file)) {return qq($data)}                             # File is already fully qualified
    } # test
-  
+
 
 =head1 Documentation
 
@@ -17894,38 +18019,38 @@ Parse a dita reference B<$ref> into its components (file name, topic id, id) . O
 B<Example:>
 
 
-  
+
     is_deeply [parseDitaRef(q(a#b/c))], [qw(a b c)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseDitaRef(q(a#./c))], [q(a), q(), q(c)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseDitaRef(q(a#/c))],  [q(a), q(), q(c)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseDitaRef(q(a#c))],   [q(a), q(), q(c)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseDitaRef(q(#b/c))],  [q(),  qw(b c)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseDitaRef(q(#b))],    [q(),  q(), q(b)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseDitaRef(q(#./c))],  [q(),  q(), q(c)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseDitaRef(q(#/c))],   [q(),  q(), q(c)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     is_deeply [parseDitaRef(q(#c))],    [q(),  q(), q(c)];  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 parseXmlDocType($string)
 
-Parse an L<Xml|https://en.wikipedia.org/wiki/XML> DOCTYPE and return a hash indicating its components
+Parse an L<Xml|https://en.wikipedia.org/wiki/XML> DOCTYPE and return a hash indicating its components.
 
      Parameter  Description
   1  $string    String containing a DOCTYPE
@@ -17933,25 +18058,25 @@ Parse an L<Xml|https://en.wikipedia.org/wiki/XML> DOCTYPE and return a hash indi
 B<Example:>
 
 
-  if (1)                                                                          
-  
+  if (1)
+
    {is_deeply parseXmlDocType(<<END),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   <!DOCTYPE reference PUBLIC "-//OASIS//DTD DITA Reference//EN" "reference.dtd">
-  ...
+  .
   END
      {localDtd => "reference.dtd",
       public   => 1,
       publicId => "-//OASIS//DTD DITA Reference//EN",
       root     => "reference",
      };
-  
-  
+
+
     is_deeply parseXmlDocType(<<END),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  ...
+  .
   <!DOCTYPE concept PUBLIC "-//OASIS//DTD DITA Task//EN" "concept.dtd" []>
-  ...
+  .
   )),
   END
        {localDtd => "concept.dtd",
@@ -17960,7 +18085,7 @@ B<Example:>
         root     => "concept",
        };
    }
-  
+
 
 =head2 reportSettings($sourceFile, $reportFile)
 
@@ -17973,14 +18098,14 @@ Report the current values of parameterless subs.
 B<Example:>
 
 
-  
+
   reportSettings($0);                                                               # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 reportAttributes($sourceFile)
 
-Report the attributes present in a B<$sourceFile>
+Report the attributes present in a B<$sourceFile>.
 
      Parameter    Description
   1  $sourceFile  Source file
@@ -17989,14 +18114,14 @@ B<Example:>
 
 
     my $d = temporaryFile;
-  
+
     my $f = writeFile(undef, <<'END'.<<END2);
   #!perl -I/home/phil/perl/cpan/DataTableText/lib/
   use Data::Table::Text qw(reportAttributeSettings);
-  sub attribute {1}                                                               # An attribute
-  sub replaceable($)                                                              #r A replaceable method
+  sub attribute {1}                                                               # An attribute.
+  sub replaceable($)                                                              #r A replaceable method.
    {
-  
+
 
 =head2 reportAttributeSettings($reportFile)
 
@@ -18009,20 +18134,20 @@ B<Example:>
 
 
     my $d = temporaryFile;
-  
+
     my $f = writeFile(undef, <<'END'.<<END2);
   #!perl -I/home/phil/perl/cpan/DataTableText/lib/
-  
+
   use Data::Table::Text qw(reportAttributeSettings);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  sub attribute {1}                                                               # An attribute
-  sub replaceable($)                                                              #r A replaceable method
+  sub attribute {1}                                                               # An attribute.
+  sub replaceable($)                                                              #r A replaceable method.
    {
-  
+
 
 =head2 reportReplacableMethods($sourceFile)
 
-Report the replaceable methods marked with #r in a B<$sourceFile>
+Report the replaceable methods marked with #r in a B<$sourceFile>.
 
      Parameter    Description
   1  $sourceFile  Source file
@@ -18031,15 +18156,15 @@ B<Example:>
 
 
     my $d = temporaryFile;
-  
+
     my $f = writeFile(undef, <<'END'.<<END2);
   #!perl -I/home/phil/perl/cpan/DataTableText/lib/
   use Data::Table::Text qw(reportAttributeSettings);
-  sub attribute {1}                                                               # An attribute
-  sub replaceable($)                                                              #r A replaceable method
+  sub attribute {1}                                                               # An attribute.
+  sub replaceable($)                                                              #r A replaceable method.
    {
-  
-  
+
+
   sub reportReplacableMethods($)                                                   # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
    {my ($sourceFile) = @_;                                                        # Source file
@@ -18053,11 +18178,11 @@ B<Example:>
      }
     \%s
    }
-  
+
 
 =head2 reportExportableMethods($sourceFile)
 
-Report the exportable methods marked with #e in a B<$sourceFile>
+Report the exportable methods marked with #e in a B<$sourceFile>.
 
      Parameter    Description
   1  $sourceFile  Source file
@@ -18066,14 +18191,14 @@ B<Example:>
 
 
     my $d = temporaryFile;
-  
+
     my $f = writeFile(undef, <<'END'.<<END2);
   #!perl -I/home/phil/perl/cpan/DataTableText/lib/
   use Data::Table::Text qw(reportAttributeSettings);
-  sub attribute {1}                                                               # An attribute
-  sub replaceable($)                                                              #r A replaceable method
+  sub attribute {1}                                                               # An attribute.
+  sub replaceable($)                                                              #r A replaceable method.
    {
-  
+
 
 =head2 htmlToc($replace, $html)
 
@@ -18086,7 +18211,7 @@ Generate a table of contents for some html.
 B<Example:>
 
 
-  
+
   ok nws(htmlToc("XXXX", <<END)), 'htmlToc'                                         # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   <h1 id="1" otherprops="1">Chapter 1</h1>
@@ -18094,8 +18219,8 @@ B<Example:>
   <h1 id="2" otherprops="2">Chapter 2</h1>
   XXXX
   END
-  
-    eq nws(<<END);                                                                
+
+    eq nws(<<END);
   <h1 id="1" otherprops="1">Chapter 1</h1>
     <h2 id="11" otherprops="11">Section 1</h1>
   <h1 id="2" otherprops="2">Chapter 2</h1>
@@ -18107,7 +18232,7 @@ B<Example:>
   <tr><td align=right>3<td>&nbsp;&nbsp;&nbsp;&nbsp;<a href="#2">Chapter 2</a>
   </table>
   END
-  
+
 
 =head2 expandWellKnownWordsAsUrlsInHtmlFormat($string)
 
@@ -18121,26 +18246,26 @@ B<Example:>
 
     ok expandWellKnownUrlsInDitaFormat(q(L[github])) eq
       q(<xref scope="external" format="html" href="https://github.com/philiprbrenan">GitHub</xref>);
-  
+
     ok expandWellKnownUrlsInHtmlFormat(q(L[github])) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(L<GitHub|https://github.com/philiprbrenan>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(github))    eq q(github);
-  
+
     ok expandWellKnownUrlsInHtmlFromPerl(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
-  
+
+
     is_deeply expandWellKnownWordsAsUrlsInHtmlFormat(q(go to gitHub and press w[enter].)),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       q(go to <a href="https://github.com/philiprbrenan">GitHub</a> and press enter.), 'ex1';
-  
+
     is_deeply expandWellKnownWordsAsUrlsInMdFormat(q(go to gitHub and press w[enter].)),
       q(go to [GitHub](https://github.com/philiprbrenan) and press enter.), 'ex2';
-  
+
     ok expandWellKnownUrlsInPod2Html(<<END) eq eval '"aaa
 
 =begin HTML
@@ -18154,7 +18279,7 @@ bbb
 "';
   aaa L<GitHub|https://github.com/philiprbrenan> bbb
   END
-  
+
 
 =head2 expandWellKnownWordsAsUrlsInMdFormat($string)
 
@@ -18168,26 +18293,26 @@ B<Example:>
 
     ok expandWellKnownUrlsInDitaFormat(q(L[github])) eq
       q(<xref scope="external" format="html" href="https://github.com/philiprbrenan">GitHub</xref>);
-  
+
     ok expandWellKnownUrlsInHtmlFormat(q(L[github])) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(L<GitHub|https://github.com/philiprbrenan>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(github))    eq q(github);
-  
+
     ok expandWellKnownUrlsInHtmlFromPerl(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     is_deeply expandWellKnownWordsAsUrlsInHtmlFormat(q(go to gitHub and press w[enter].)),
       q(go to <a href="https://github.com/philiprbrenan">GitHub</a> and press enter.), 'ex1';
-  
-  
+
+
     is_deeply expandWellKnownWordsAsUrlsInMdFormat(q(go to gitHub and press w[enter].)),  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       q(go to [GitHub](https://github.com/philiprbrenan) and press enter.), 'ex2';
-  
+
     ok expandWellKnownUrlsInPod2Html(<<END) eq eval '"aaa
 
 =begin HTML
@@ -18201,11 +18326,11 @@ bbb
 "';
   aaa L<GitHub|https://github.com/philiprbrenan> bbb
   END
-  
+
 
 =head2 expandWellKnownUrlsInPerlFormat($string)
 
-Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format LE<lt>url-nameE<gt> using the Perl POD syntax
+Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format LE<lt>url-nameE<gt> using the Perl POD syntax.
 
      Parameter  Description
   1  $string    String containing url names to expand
@@ -18215,28 +18340,28 @@ B<Example:>
 
     ok expandWellKnownUrlsInDitaFormat(q(L[github])) eq
       q(<xref scope="external" format="html" href="https://github.com/philiprbrenan">GitHub</xref>);
-  
+
     ok expandWellKnownUrlsInHtmlFormat(q(L[github])) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
-  
+
+
     ok expandWellKnownUrlsInPerlFormat(q(L<GitHub|https://github.com/philiprbrenan>)) eq  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       q(L<GitHub|https://github.com/philiprbrenan>);
-  
-  
+
+
     ok expandWellKnownUrlsInPerlFormat(q(github))    eq q(github);  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
     ok expandWellKnownUrlsInHtmlFromPerl(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     is_deeply expandWellKnownWordsAsUrlsInHtmlFormat(q(go to gitHub and press w[enter].)),
       q(go to <a href="https://github.com/philiprbrenan">GitHub</a> and press enter.), 'ex1';
-  
+
     is_deeply expandWellKnownWordsAsUrlsInMdFormat(q(go to gitHub and press w[enter].)),
       q(go to [GitHub](https://github.com/philiprbrenan) and press enter.), 'ex2';
-  
+
     ok expandWellKnownUrlsInPod2Html(<<END) eq eval '"aaa
 
 =begin HTML
@@ -18250,7 +18375,7 @@ bbb
 "';
   aaa L<GitHub|https://github.com/philiprbrenan> bbb
   END
-  
+
 
 =head2 expandWellKnownUrlsInHtmlFormat($string)
 
@@ -18264,26 +18389,26 @@ B<Example:>
 
     ok expandWellKnownUrlsInDitaFormat(q(L[github])) eq
       q(<xref scope="external" format="html" href="https://github.com/philiprbrenan">GitHub</xref>);
-  
-  
+
+
     ok expandWellKnownUrlsInHtmlFormat(q(L[github])) eq  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(L<GitHub|https://github.com/philiprbrenan>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(github))    eq q(github);
-  
+
     ok expandWellKnownUrlsInHtmlFromPerl(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     is_deeply expandWellKnownWordsAsUrlsInHtmlFormat(q(go to gitHub and press w[enter].)),
       q(go to <a href="https://github.com/philiprbrenan">GitHub</a> and press enter.), 'ex1';
-  
+
     is_deeply expandWellKnownWordsAsUrlsInMdFormat(q(go to gitHub and press w[enter].)),
       q(go to [GitHub](https://github.com/philiprbrenan) and press enter.), 'ex2';
-  
+
     ok expandWellKnownUrlsInPod2Html(<<END) eq eval '"aaa
 
 =begin HTML
@@ -18297,7 +18422,7 @@ bbb
 "';
   aaa L<GitHub|https://github.com/philiprbrenan> bbb
   END
-  
+
 
 =head2 expandWellKnownUrlsInHtmlFromPerl($string)
 
@@ -18311,26 +18436,26 @@ B<Example:>
 
     ok expandWellKnownUrlsInDitaFormat(q(L[github])) eq
       q(<xref scope="external" format="html" href="https://github.com/philiprbrenan">GitHub</xref>);
-  
+
     ok expandWellKnownUrlsInHtmlFormat(q(L[github])) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(L<GitHub|https://github.com/philiprbrenan>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(github))    eq q(github);
-  
-  
+
+
     ok expandWellKnownUrlsInHtmlFromPerl(q(L<GitHub|https://github.com/philiprbrenan>)) eq  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     is_deeply expandWellKnownWordsAsUrlsInHtmlFormat(q(go to gitHub and press w[enter].)),
       q(go to <a href="https://github.com/philiprbrenan">GitHub</a> and press enter.), 'ex1';
-  
+
     is_deeply expandWellKnownWordsAsUrlsInMdFormat(q(go to gitHub and press w[enter].)),
       q(go to [GitHub](https://github.com/philiprbrenan) and press enter.), 'ex2';
-  
+
     ok expandWellKnownUrlsInPod2Html(<<END) eq eval '"aaa
 
 =begin HTML
@@ -18344,11 +18469,11 @@ bbb
 "';
   aaa L<GitHub|https://github.com/philiprbrenan> bbb
   END
-  
+
 
 =head2 expandWellKnownUrlsInPod2Html($string)
 
-Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format =begin html format
+Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format =begin html format.
 
      Parameter  Description
   1  $string    String containing url names to expand
@@ -18358,25 +18483,25 @@ B<Example:>
 
     ok expandWellKnownUrlsInDitaFormat(q(L[github])) eq
       q(<xref scope="external" format="html" href="https://github.com/philiprbrenan">GitHub</xref>);
-  
+
     ok expandWellKnownUrlsInHtmlFormat(q(L[github])) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(L<GitHub|https://github.com/philiprbrenan>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(github))    eq q(github);
-  
+
     ok expandWellKnownUrlsInHtmlFromPerl(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     is_deeply expandWellKnownWordsAsUrlsInHtmlFormat(q(go to gitHub and press w[enter].)),
       q(go to <a href="https://github.com/philiprbrenan">GitHub</a> and press enter.), 'ex1';
-  
+
     is_deeply expandWellKnownWordsAsUrlsInMdFormat(q(go to gitHub and press w[enter].)),
       q(go to [GitHub](https://github.com/philiprbrenan) and press enter.), 'ex2';
-  
-  
+
+
     ok expandWellKnownUrlsInPod2Html(<<END) eq eval '"aaa
 
 =begin HTML
@@ -18391,7 +18516,7 @@ bbb
 
   aaa L<GitHub|https://github.com/philiprbrenan> bbb
   END
-  
+
 
 =head2 expandWellKnownUrlsInDitaFormat($string)
 
@@ -18403,28 +18528,28 @@ Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in
 B<Example:>
 
 
-  
+
     ok expandWellKnownUrlsInDitaFormat(q(L[github])) eq  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       q(<xref scope="external" format="html" href="https://github.com/philiprbrenan">GitHub</xref>);
-  
+
     ok expandWellKnownUrlsInHtmlFormat(q(L[github])) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(L<GitHub|https://github.com/philiprbrenan>);
-  
+
     ok expandWellKnownUrlsInPerlFormat(q(github))    eq q(github);
-  
+
     ok expandWellKnownUrlsInHtmlFromPerl(q(L<GitHub|https://github.com/philiprbrenan>)) eq
       q(<a format="html" href="https://github.com/philiprbrenan">GitHub</a>);
-  
+
     is_deeply expandWellKnownWordsAsUrlsInHtmlFormat(q(go to gitHub and press w[enter].)),
       q(go to <a href="https://github.com/philiprbrenan">GitHub</a> and press enter.), 'ex1';
-  
+
     is_deeply expandWellKnownWordsAsUrlsInMdFormat(q(go to gitHub and press w[enter].)),
       q(go to [GitHub](https://github.com/philiprbrenan) and press enter.), 'ex2';
-  
+
     ok expandWellKnownUrlsInPod2Html(<<END) eq eval '"aaa
 
 =begin HTML
@@ -18438,12 +18563,12 @@ bbb
 "';
   aaa L<GitHub|https://github.com/philiprbrenan> bbb
   END
-  
+
 
 =head2 expandNewLinesInDocumentation($s)
 
-Expand new lines in documentation, specifically 
- for new line and 
+Expand new lines in documentation, specifically
+ for new line and
 
  for two new lines.
 
@@ -18453,7 +18578,7 @@ Expand new lines in documentation, specifically
 B<Example:>
 
 
-  
+
   ok expandNewLinesInDocumentation(q(a
 
   b
@@ -18461,11 +18586,11 @@ B<Example:>
 )) eq <<END;  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   a
-  
+
     b
     c
   END
-  
+
 
 =head2 extractCodeBlock($comment, $file)
 
@@ -18478,13 +18603,13 @@ Extract the block of code delimited by B<$comment>, starting at qq($comment-begi
 B<Example:>
 
 
-  
+
   ok extractCodeBlock(q(#CODEBLOCK), $INC{"Data/Table/Text.pm"}) eq <<'END';  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     my $a = 1;
     my $b = 2;
   END
-  
+
 
 =head2 updateDocumentation($perlModule)
 
@@ -18554,7 +18679,7 @@ The character sequence B<\n> in the comment will be expanded to one new line, B<
 Search for '#D1': in L<https://metacpan.org/source/PRBRENAN/Data-Table-Text-20180810/lib/Data/Table/Text.pm> to see  more examples of such documentation in action - although it is quite difficult to see as it looks just like normal comments placed in the code.
 
 Parameters:
-
+.
 
      Parameter    Description
   1  $perlModule  Optional file name with caller's file being the default
@@ -18562,38 +18687,38 @@ Parameters:
 B<Example:>
 
 
-  
+
    {my $s = updateDocumentation(<<'END' =~ s(#) (#)gsr =~ s(~) ()gsr);              # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
   package Sample::Module;
-  
+
   #D1 Samples                                                                      # Sample methods.
-  
+
   sub sample($@)                                                                  #R Documentation for the:  sample() method.  See also L<Data::Table::Text::sample2|/Data::Table::Text::sample2>. #Tsample .
    {my ($node, @context) = @_;                                                    # Node, optional context
     1
    }
-  
+
   ~BEGIN{*smpl=*sample}
-  
+
   sub Data::Table::Text::sample2(\&@)                                             #PS Documentation for the sample2() method.
    {my ($sub, @context) = @_;                                                     # Sub to call, context.
     1
    }
-  
+
   ok sample(undef, qw(a b c)) == 1;                                               #Tsample
-  
+
   if (1)                                                                          #Tsample
    {ok sample(q(a), qw(a b c))  == 2;
     ok sample(undef, qw(a b c)) == 1;
    }
-  
+
   ok sample(<<END2)) == 1;                                                        #Tsample
   sample data
   END2
-  
-    ok $s =~ m/=head2 Data::Table::Text::sample2.\$sub, \@context/;               
-  
+
+    ok $s =~ m/=head2 Data::Table::Text::sample2.\$sub, \@context/;
+
 
 
 =head1 Hash Definitions
@@ -18734,11 +18859,11 @@ A hash of pids representing processes started but not yet completed.
 
 =head4 processFinishTime
 
-{pid} == time the process finished.
+Hash of {pid} == time the process finished.
 
 =head4 processStartTime
 
-{pid} == time the process was started.
+Hash of {pid} == time the process was started.
 
 =head4 processingLogFileHandle
 
@@ -18840,27 +18965,27 @@ default value supplied for this attribute by this package.
 =head2 Replaceable Attribute List
 
 
-awsEc2DescribeInstancesCache awsIpFile nameFromStringMaximumLength wwwHeader 
+awsEc2DescribeInstancesCache awsIpFile nameFromStringMaximumLength wwwHeader
 
 
 =head2 awsEc2DescribeInstancesCache
 
-File in which to cache latest results from describe instances to avoid being throttled
+File in which to cache latest results from describe instances to avoid being throttled.
 
 
 =head2 awsIpFile
 
-File in which to save IP address of primary instance on Aws
+File in which to save IP address of primary instance on Aws.
 
 
 =head2 nameFromStringMaximumLength
 
-Maximum length of a name generated from a string
+Maximum length of a name generated from a string.
 
 
 =head2 wwwHeader
 
-Html header
+Html header.
 
 
 
@@ -18869,17 +18994,17 @@ Html header
 
 =head2 onWindows()
 
-Are we on windows
+Are we on windows.
 
 
 =head2 onMac()
 
-Are we on mac
+Are we on mac.
 
 
 =head2 filePathSeparatorChar()
 
-File path separator
+File path separator.
 
 
 =head2 denormalizeFolderName($name)
@@ -18898,7 +19023,7 @@ Normalize a folder name by ensuring it has a single trailing directory separator
 
 =head2 prefferedFileName($name)
 
-Normalize a file name
+Normalize a file name.
 
      Parameter  Description
   1  $name      Name
@@ -18926,10 +19051,10 @@ Set STDOUT and STDERR to accept utf8 without complaint.
 B<Example:>
 
 
-  
+
     binModeAllUtf8;                                                                 # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 convertImageToJpx690($Source, $target, $Size, $Tiles)
 
@@ -18954,14 +19079,14 @@ Convert a B<$source> image to a B<$target> image in jpx format. The size in pixe
 B<Example:>
 
 
-  
+
     convertImageToJpx(fpe(qw(a image jpg)), fpe(qw(a image jpg)), 256);             # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
-  
+
 
 =head2 setCombination(@s)
 
-Count the elements in sets B<@s> represented as arrays of strings and/or the keys of hashes
+Count the elements in sets B<@s> represented as arrays of strings and/or the keys of hashes.
 
      Parameter  Description
   1  @s         Array of arrays of strings and/or hashes
@@ -18976,7 +19101,7 @@ Tabularize text that has new lines in it.
 
 =head2 formatTableClearUpLeft($data)
 
-Blank identical column values up and left
+Blank identical column values up and left.
 
      Parameter  Description
   1  $data      Array of arrays
@@ -18995,13 +19120,13 @@ B<Example:>
 
    ok formatTable
     ([[1,1,1],[1,1,2],[1,2,2],[1,2,3]], [], clearUpLeft=>1) eq <<END;             # Clear matching columns
-  
+
   1  1  1  1
   2        2
   3     2  2
   4        3
   END
-  
+
 
 =head2 formatTableHA($data, $title)
 
@@ -19043,7 +19168,7 @@ Tabularize a hash.
 
 =head2 formatTableCheckKeys()
 
-Options available for formatting tables
+Options available for formatting tables.
 
 
 =head2 reloadHashes2($d, $progress)
@@ -19079,28 +19204,33 @@ Create a communicator - a means to communicate between processes on the same mac
 
 =head2 awsInstanceId(%options)
 
-Create an instance-id from the specified B<%options>
+Create an instance-id from the specified B<%options>.
 
      Parameter  Description
   1  %options   Options
 
 =head2 awsProfile(%options)
 
-Create a profile keyword from the specified B<%options>
+Create a profile keyword from the specified B<%options>.
 
      Parameter  Description
   1  %options   Options
 
 =head2 awsRegion(%options)
 
-Create a region keyword from the specified B<%options>
+Create a region keyword from the specified B<%options>.
 
      Parameter  Description
   1  %options   Options
 
+=head2 getCCompiler()
+
+Return the name of the C compiler on this system.
+
+
 =head2 getNumberOfCpus()
 
-Number of cpus
+Number of cpus.
 
 
 =head2 saveSourceToS3($aws, $saveIntervalInSeconds)
@@ -19125,46 +19255,46 @@ B<Example:>
     my $N = 2001;                                                                 # Number of files to process
     my $options = q(region => q(us-east-2), profile=>q(fmc));                     # Aws cli options
     my %options = eval "($options)";
-  
+
     for my $dir(q(/home/phil/perl/cpan/DataTableText/lib/Data/Table/),            # Folders we will need on aws
                 q(/home/phil/.aws/))
      {awsParallelSpreadFolder($dir, %options);
      }
-  
+
     my $d = temporaryFolder;                                                      # Create a temporary folder
     my $resultsFile = fpe($d, qw(results data));                                  # Save results in this temporary file
-  
+
     if (my $r = execPerlOnRemote(join "
 ",                                       # Execute some code on a server
-  
+
       getCodeContext(\&awsParallelProcessFilesTestParallel),                      # Get code context of the sub we want to call.  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
       <<SESSIONLEADER))                                                           # Launch code on session leader
   use Data::Table::Text qw(:all);
-  
+
   my \$r = awsParallelProcessFiles                                                # Process files on multiple L<Amazon Web Services|http://aws.amazon.com> instances in parallel
    ({file=>4, time=>timeStamp},                                                   # User data
-  
+
     \\\&Data::Table::Text::awsParallelProcessFilesTestParallel,                   # Reference to code to execute in parallel on each session instance  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     \\\&Data::Table::Text::awsParallelProcessFilesTestResults,                    # Reference to code to execute in series to merge the results of each parallel computation
     [map {writeFile(fpe(q($d), \$_, qw(txt)), \$_)} 1..$N],                       # Files to process
     $options);                                                                    # Aws cli options as we will be running on Aws
-  
+
   storeFile(q($resultsFile), \$r);                                                # Save results in a file
-  
+
   SESSIONLEADER
-  
+
      {copyFileFromRemote($resultsFile);                                           # Retrieve user data
-  
+
       my $userData = retrieveFile($resultsFile);                                  # Recover user data
       my @i = awsParallelSecondaryIpAddresses(%options);                          # Ip addresses of secondary instances
       my @I = keys $userData->{ip}->%*;
       is_deeply [sort @i], [sort @I];                                             # Each secondary ip address was used
-  
+
       ok $userData->{file}  == 4;                                                 # Prove we can pass data in and get it back
       ok $userData->{merge} == 1 + @i, 'ii';                                      # Number of merges
-  
+
       my %f; my %i;                                                               # Files processed on each ip
       for   my $i(sort keys $userData->{ipFile}->%*)                              # Ip
        {for my $f(sort keys $userData->{ipFile}{$i}->%*)                          # File
@@ -19172,9 +19302,9 @@ B<Example:>
           $i{$i}++;                                                               # Count files on each ip
          }
        }
-  
+
       is_deeply \%f, {map {$_=>1} 1..$N};                                         # Check each file was processed
-  
+
       if (1)
        {my @rc; my @ra;                                                           # Range of number of files processed on each ip - computed, actually counted
         my $l = $N/@i-1;                                                          # Lower limit of number of files per IP address
@@ -19188,11 +19318,11 @@ B<Example:>
         ok @i == grep {$_} @ra;                                                   # Check each ip processed the expected number of files
         ok @i == grep {$_} @rc;
        }
-  
+
       ok $userData->{files}{&fpe($d, qw(4 txt))} eq                               # Check the computed MD5 sum for the specified file
          q(a87ff679a2f3e71d9181a67b7542122c);
      }
-  
+
 
 =head2 awsParallelProcessFilesTestResults($userData, @results)
 
@@ -19208,44 +19338,44 @@ B<Example:>
     my $N = 2001;                                                                 # Number of files to process
     my $options = q(region => q(us-east-2), profile=>q(fmc));                     # Aws cli options
     my %options = eval "($options)";
-  
+
     for my $dir(q(/home/phil/perl/cpan/DataTableText/lib/Data/Table/),            # Folders we will need on aws
                 q(/home/phil/.aws/))
      {awsParallelSpreadFolder($dir, %options);
      }
-  
+
     my $d = temporaryFolder;                                                      # Create a temporary folder
     my $resultsFile = fpe($d, qw(results data));                                  # Save results in this temporary file
-  
+
     if (my $r = execPerlOnRemote(join "
 ",                                       # Execute some code on a server
       getCodeContext(\&awsParallelProcessFilesTestParallel),                      # Get code context of the sub we want to call.
       <<SESSIONLEADER))                                                           # Launch code on session leader
   use Data::Table::Text qw(:all);
-  
+
   my \$r = awsParallelProcessFiles                                                # Process files on multiple L<Amazon Web Services|http://aws.amazon.com> instances in parallel
    ({file=>4, time=>timeStamp},                                                   # User data
     \\\&Data::Table::Text::awsParallelProcessFilesTestParallel,                   # Reference to code to execute in parallel on each session instance
-  
+
     \\\&Data::Table::Text::awsParallelProcessFilesTestResults,                    # Reference to code to execute in series to merge the results of each parallel computation  # 𝗘𝘅𝗮𝗺𝗽𝗹𝗲
 
     [map {writeFile(fpe(q($d), \$_, qw(txt)), \$_)} 1..$N],                       # Files to process
     $options);                                                                    # Aws cli options as we will be running on Aws
-  
+
   storeFile(q($resultsFile), \$r);                                                # Save results in a file
-  
+
   SESSIONLEADER
-  
+
      {copyFileFromRemote($resultsFile);                                           # Retrieve user data
-  
+
       my $userData = retrieveFile($resultsFile);                                  # Recover user data
       my @i = awsParallelSecondaryIpAddresses(%options);                          # Ip addresses of secondary instances
       my @I = keys $userData->{ip}->%*;
       is_deeply [sort @i], [sort @I];                                             # Each secondary ip address was used
-  
+
       ok $userData->{file}  == 4;                                                 # Prove we can pass data in and get it back
       ok $userData->{merge} == 1 + @i, 'ii';                                      # Number of merges
-  
+
       my %f; my %i;                                                               # Files processed on each ip
       for   my $i(sort keys $userData->{ipFile}->%*)                              # Ip
        {for my $f(sort keys $userData->{ipFile}{$i}->%*)                          # File
@@ -19253,9 +19383,9 @@ B<Example:>
           $i{$i}++;                                                               # Count files on each ip
          }
        }
-  
+
       is_deeply \%f, {map {$_=>1} 1..$N};                                         # Check each file was processed
-  
+
       if (1)
        {my @rc; my @ra;                                                           # Range of number of files processed on each ip - computed, actually counted
         my $l = $N/@i-1;                                                          # Lower limit of number of files per IP address
@@ -19269,22 +19399,22 @@ B<Example:>
         ok @i == grep {$_} @ra;                                                   # Check each ip processed the expected number of files
         ok @i == grep {$_} @rc;
        }
-  
+
       ok $userData->{files}{&fpe($d, qw(4 txt))} eq                               # Check the computed MD5 sum for the specified file
          q(a87ff679a2f3e71d9181a67b7542122c);
      }
-  
+
 
 =head2 s3Profile(%options)
 
-Return an S3 profile keyword from an S3 option set
+Return an S3 profile keyword from an S3 option set.
 
      Parameter  Description
   1  %options   Options
 
 =head2 s3Delete(%options)
 
-Return an S3 --delete keyword from an S3 option set
+Return an S3 --delete keyword from an S3 option set.
 
      Parameter  Description
   1  %options   Options
@@ -19299,7 +19429,7 @@ Create a log entry showing progress and eta.
 
 =head2 Data::Table::Text::Starter::averageProcessTime($starter)
 
-Average elapsed time spent by each process
+Average elapsed time spent by each process.
 
      Parameter  Description
   1  $starter   Starter
@@ -19321,14 +19451,14 @@ Wait for at least one process to finish and consolidate its results.
 
 =head2 countSquareArray(@square)
 
-Count the number of elements in a square array
+Count the number of elements in a square array.
 
      Parameter  Description
   1  @square    Array of arrays
 
 =head2 processSizesInParallelN($N, $parallel, $results, @sizes)
 
-Process items of known size in parallel using the specified number B<$N> processes with the process each file is assigned to depending on the size of the file so that each process is loaded with approximately the same number of bytes of data in total from the files it processes. 
+Process items of known size in parallel using the specified number B<$N> processes with the process each file is assigned to depending on the size of the file so that each process is loaded with approximately the same number of bytes of data in total from the files it processes.
 
 Each file is processed by sub B<$parallel> and the results of processing all files is processed by B<$results> where the files are taken from B<@files>. Each B<&$parallel> receives a file from B<@files>. B<&$results> receives an array of all the results returned by B<&$parallel>.
 
@@ -19340,15 +19470,23 @@ Each file is processed by sub B<$parallel> and the results of processing all fil
 
 =head2 wellKnownUrls()
 
-Short names for some well known urls
+Short names for some well known urls.
 
 
 =head2 reinstateWellKnown($string)
 
-Contract references to well known Urls to their abbreviated form
+Contract references to well known Urls to their abbreviated form.
 
      Parameter  Description
   1  $string    Source string
+
+=head2 expandWellKnownWordsInMarkDownFile($s, $t)
+
+Expand well known words in a mark down file
+
+     Parameter  Description
+  1  $s         Source file
+  2  $t         Target file
 
 =head2 formatSourcePodAsHtml()
 
@@ -19381,7 +19519,7 @@ Update the documentation in a B<$perlModule> and display said documentation in a
 
 =head2 extractPythonDocumentationFromFiles(@sources)
 
-Extract python documentation from the specified files
+Extract python documentation from the specified files.
 
      Parameter  Description
   1  @sources   Python source files
@@ -19420,11 +19558,11 @@ B<temporaryDirectory> is a synonym for L<temporaryFolder|/temporaryFolder> - Cre
 
 8 L<arrayTimes|/arrayTimes> - Multiply by B<$multiplier> each element of the array B<@a> and return as the result.
 
-9 L<arrayToHash|/arrayToHash> - Create a hash reference from an array
+9 L<arrayToHash|/arrayToHash> - Create a hash reference from an array.
 
 10 L<asciiToHexString|/asciiToHexString> - Encode an L<Ascii|https://en.wikipedia.org/wiki/ASCII> string as a string of L<hexadecimal|https://en.wikipedia.org/wiki/Hexadecimal> digits.
 
-11 L<assertPackageRefs|/assertPackageRefs> - Confirm that the specified references are to the specified package
+11 L<assertPackageRefs|/assertPackageRefs> - Confirm that the specified references are to the specified package.
 
 12 L<assertRef|/assertRef> - Confirm that the specified references are to the package into which this routine has been exported.
 
@@ -19436,7 +19574,7 @@ B<temporaryDirectory> is a synonym for L<temporaryFolder|/temporaryFolder> - Cre
 
 16 L<awsCurrentIp|/awsCurrentIp> - Get the ip address of the AWS server we are currently running on if we are running on an L<Amazon Web Services|http://aws.amazon.com> server else return a blank string.
 
-17 L<awsCurrentLinuxSpotPrices|/awsCurrentLinuxSpotPrices> - Return {instance type} = cheapest spot price in dollars per hour for the given region
+17 L<awsCurrentLinuxSpotPrices|/awsCurrentLinuxSpotPrices> - Return {instance type} = cheapest spot price in dollars per hour for the given region.
 
 18 L<awsCurrentRegion|/awsCurrentRegion> - Get the region of the L<Amazon Web Services|http://aws.amazon.com> server we are currently running on if we are running on an L<Amazon Web Services|http://aws.amazon.com> server else return a blank string.
 
@@ -19462,11 +19600,11 @@ B<temporaryDirectory> is a synonym for L<temporaryFolder|/temporaryFolder> - Cre
 
 29 L<awsEc2Tag|/awsEc2Tag> - Tag an elastic compute resource with the supplied tags.
 
-30 L<awsExecCli|/awsExecCli> - Execute an AWs command and return its response
+30 L<awsExecCli|/awsExecCli> - Execute an AWs command and return its response.
 
-31 L<awsExecCliJson|/awsExecCliJson> - Execute an AWs command and decode the json so produced
+31 L<awsExecCliJson|/awsExecCliJson> - Execute an AWs command and decode the json so produced.
 
-32 L<awsInstanceId|/awsInstanceId> - Create an instance-id from the specified B<%options>
+32 L<awsInstanceId|/awsInstanceId> - Create an instance-id from the specified B<%options>.
 
 33 L<awsIp|/awsIp> - Get ip address of server at L<Amazon Web Services|http://aws.amazon.com>.
 
@@ -19490,13 +19628,13 @@ B<temporaryDirectory> is a synonym for L<temporaryFolder|/temporaryFolder> - Cre
 
 43 L<awsParallelSpreadFolder|/awsParallelSpreadFolder> - On L<Amazon Web Services|http://aws.amazon.com>: copies a specified B<$folder> from the primary instance, see: L<awsParallelPrimaryInstanceId>, in parallel, to all the secondary instances in the session.
 
-44 L<awsProfile|/awsProfile> - Create a profile keyword from the specified B<%options>
+44 L<awsProfile|/awsProfile> - Create a profile keyword from the specified B<%options>.
 
 45 L<awsR53a|/awsR53a> - Create/Update a B<A> L<Domain Name System|https://en.wikipedia.org/wiki/Domain_Name_System> record for the specified server.
 
 46 L<awsR53aaaa|/awsR53aaaa> - Create/Update a B<AAAA> L<Domain Name System|https://en.wikipedia.org/wiki/Domain_Name_System> record for the specified server.
 
-47 L<awsRegion|/awsRegion> - Create a region keyword from the specified B<%options>
+47 L<awsRegion|/awsRegion> - Create a region keyword from the specified B<%options>.
 
 48 L<awsTranslateText|/awsTranslateText> - Translate B<$text> from English to a specified B<$language> using AWS Translate with the specified global B<$options> and return the translated string.
 
@@ -19522,706 +19660,716 @@ B<temporaryDirectory> is a synonym for L<temporaryFolder|/temporaryFolder> - Cre
 
 59 L<clearFolder|/clearFolder> - Remove all the files and folders under and including the specified B<$folder> as long as the number of files to be removed is less than the specified B<$limitCount>.
 
-60 L<cmpArrays|/cmpArrays> - Compare two arrays of strings
+60 L<cmpArrays|/cmpArrays> - Compare two arrays of strings.
 
-61 L<confirmHasCommandLineCommand|/confirmHasCommandLineCommand> - Check that the specified b<$cmd> is present on the current system.
+61 L<compareArraysAndExplain|/compareArraysAndExplain> - Compare two arrays of strings and provide an explanation as to why they differ if they differ or undef if they do not
 
-62 L<containingFolderName|/containingFolderName> - The name of a folder containing a file
+62 L<confirmHasCommandLineCommand|/confirmHasCommandLineCommand> - Check that the specified b<$cmd> is present on the current system.
 
-63 L<containingPowerOfTwo|/containingPowerOfTwo> - Find log two of the lowest power of two greater than or equal to a number B<$n>.
+63 L<containingFolderName|/containingFolderName> - The name of a folder containing a file.
 
-64 L<contains|/contains> - Returns the indices at which an B<$item> matches elements of the specified B<@array>.
+64 L<containingPowerOfTwo|/containingPowerOfTwo> - Find log two of the lowest power of two greater than or equal to a number B<$n>.
 
-65 L<convertDocxToFodt|/convertDocxToFodt> - Convert a I<docx> B<$inputFile> file to a I<fodt> B<$outputFile> using B<unoconv> which must not be running elsewhere at the time.
+65 L<contains|/contains> - Returns the indices at which an B<$item> matches elements of the specified B<@array>.
 
-66 L<convertImageToJpx|/convertImageToJpx> - Convert a B<$source> image to a B<$target> image in jpx format.
+66 L<convertDocxToFodt|/convertDocxToFodt> - Convert a I<docx> B<$inputFile> file to a I<fodt> B<$outputFile> using B<unoconv> which must not be running elsewhere at the time.
 
-67 L<convertImageToJpx690|/convertImageToJpx690> - Convert a B<$source> image to a B<$target> image in jpx format using versions of L<Imagemagick|https://www.imagemagick.org/script/index.php> version 6.
+67 L<convertImageToJpx|/convertImageToJpx> - Convert a B<$source> image to a B<$target> image in jpx format.
 
-68 L<convertPerlToJavaScript|/convertPerlToJavaScript> - Convert Perl to Javascript
+68 L<convertImageToJpx690|/convertImageToJpx690> - Convert a B<$source> image to a B<$target> image in jpx format using versions of L<Imagemagick|https://www.imagemagick.org/script/index.php> version 6.
 
-69 L<convertUnicodeToXml|/convertUnicodeToXml> - Convert a B<$string> with L<Unicode|https://en.wikipedia.org/wiki/Unicode> code points that are not directly representable in L<Ascii|https://en.wikipedia.org/wiki/ASCII> into string that replaces these code points with their representation in L<Xml|https://en.wikipedia.org/wiki/XML> making the string usable in L<Xml|https://en.wikipedia.org/wiki/XML> documents.
+69 L<convertPerlToJavaScript|/convertPerlToJavaScript> - Convert Perl to Javascript.
 
-70 L<convertUtf32ToUtf8|/convertUtf32ToUtf8> - Convert a number representing a single unicode point coded in utf32 to utf8.
+70 L<convertUnicodeToXml|/convertUnicodeToXml> - Convert a B<$string> with L<Unicode|https://en.wikipedia.org/wiki/Unicode> code points that are not directly representable in L<Ascii|https://en.wikipedia.org/wiki/ASCII> into string that replaces these code points with their representation in L<Xml|https://en.wikipedia.org/wiki/XML> making the string usable in L<Xml|https://en.wikipedia.org/wiki/XML> documents.
 
-71 L<convertUtf8ToUtf32|/convertUtf8ToUtf32> - Convert a number representing a single unicode point coded in utf8 to utf32.
+71 L<convertUtf32ToUtf8|/convertUtf32ToUtf8> - Convert a number representing a single unicode point coded in utf32 to utf8 big endian.
 
-72 L<copyBinaryFile|/copyBinaryFile> - Copy the binary file B<$source> to a file named <%target> and return the target file name,
+72 L<convertUtf32ToUtf8LE|/convertUtf32ToUtf8LE> - Convert a number representing a single unicode point coded in utf32 to utf8 little endian.
 
-73 L<copyBinaryFileMd5Normalized|/copyBinaryFileMd5Normalized> - Normalize the name of the specified B<$source> file to the md5 sum of its content, retaining its current extension, while placing the original file name in a companion file if the companion file does not already exist.
+73 L<convertUtf8ToUtf32|/convertUtf8ToUtf32> - Convert a number representing a single unicode point coded in utf8 to utf32.
 
-74 L<copyBinaryFileMd5NormalizedCreate|/copyBinaryFileMd5NormalizedCreate> - Create a file in the specified B<$folder> whose name is constructed from the md5 sum of the specified B<$content>, whose content is B<$content>, whose extension is B<$extension> and which has a companion file with the same name minus the extension  which contains the specified B<$companionContent>.
+74 L<copyBinaryFile|/copyBinaryFile> - Copy the binary file B<$source> to a file named <%target> and return the target file name,.
 
-75 L<copyBinaryFileMd5NormalizedGetCompanionContent|/copyBinaryFileMd5NormalizedGetCompanionContent> - Return the original name of the specified B<$source> file after it has been normalized via L<copyBinaryFileMd5Normalized|/copyBinaryFileMd5Normalized> or L<copyBinaryFileMd5NormalizedCreate|/copyBinaryFileMd5NormalizedCreate> or return B<undef> if the corresponding companion file does not exist.
+75 L<copyFile|/copyFile> - Copy the B<$source> file encoded in utf8 to the specified B<$target> file in and return $target.
 
-76 L<copyFile|/copyFile> - Copy the B<$source> file encoded in utf8 to the specified B<$target> file in and return $target.
+76 L<copyFileFromRemote|/copyFileFromRemote> - Copy the specified B<$file> from the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
 
-77 L<copyFileFromRemote|/copyFileFromRemote> - Copy the specified B<$file> from the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
+77 L<copyFileToFolder|/copyFileToFolder> - Copy the file named in B<$source> to the specified B<$targetFolder/> or if $targetFolder/ is in fact a file into the folder containing this file and return the target file name.
 
-78 L<copyFileMd5Normalized|/copyFileMd5Normalized> - Normalize the name of the specified B<$source> file to the md5 sum of its content, retaining its current extension, while placing the original file name in a companion file if the companion file does not already exist.
+78 L<copyFileToRemote|/copyFileToRemote> - Copy the specified local B<$file> to the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
 
-79 L<copyFileMd5NormalizedCreate|/copyFileMd5NormalizedCreate> - Create a file in the specified B<$folder> whose name is constructed from the md5 sum of the specified B<$content>, whose content is B<$content>, whose extension is B<$extension> and which has a companion file with the same name minus the extension which contains the specified B<$companionContent>.
+79 L<copyFolder|/copyFolder> - Copy the B<$source> folder to the B<$target> folder after clearing the $target folder.
 
-80 L<copyFileMd5NormalizedDelete|/copyFileMd5NormalizedDelete> - Delete a normalized and its companion file
+80 L<copyFolderToRemote|/copyFolderToRemote> - Copy the specified local B<$Source> folder to the corresponding remote folder on the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
 
-81 L<copyFileMd5NormalizedGetCompanionContent|/copyFileMd5NormalizedGetCompanionContent> - Return the content of the companion file to the specified B<$source> file after it has been normalized via L<copyFileMd5Normalized|/copyFileMd5Normalized> or L<copyFileMd5NormalizedCreate|/copyFileMd5NormalizedCreate> or return B<undef> if the corresponding companion file does not exist.
+81 L<countFileExtensions|/countFileExtensions> - Return a hash which counts the file extensions in and below the folders in the specified list.
 
-82 L<copyFileMd5NormalizedName|/copyFileMd5NormalizedName> - Name a file using the GB Standard
+82 L<countFileTypes|/countFileTypes> - Return a hash which counts, in parallel with a maximum number of processes: B<$maximumNumberOfProcesses>, the results of applying the B<file> command to each file in and under the specified B<@folders>.
 
-83 L<copyFileToFolder|/copyFileToFolder> - Copy the file named in B<$source> to the specified B<$targetFolder/> or if $targetFolder/ is in fact a file into the folder containing this file and return the target file name.
+83 L<countOccurencesInString|/countOccurencesInString> - Returns the number of occurrences in B<$inString> of B<$searchFor>.
 
-84 L<copyFileToRemote|/copyFileToRemote> - Copy the specified local B<$file> to the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
+84 L<countSquareArray|/countSquareArray> - Count the number of elements in a square array.
 
-85 L<copyFolder|/copyFolder> - Copy the B<$source> folder to the B<$target> folder after clearing the $target folder.
+85 L<createEmptyFile|/createEmptyFile> - Create an empty file unless the file already exists and return the name of the file else confess if the file cannot be created.
 
-86 L<copyFolderToRemote|/copyFolderToRemote> - Copy the specified local B<$Source> folder to the corresponding remote folder on the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
+86 L<currentDirectory|/currentDirectory> - Get the current working directory.
 
-87 L<countFileExtensions|/countFileExtensions> - Return a hash which counts the file extensions in and below the folders in the specified list.
+87 L<currentDirectoryAbove|/currentDirectoryAbove> - Get the path to the folder above the current working folder.
 
-88 L<countFileTypes|/countFileTypes> - Return a hash which counts, in parallel with a maximum number of processes: B<$maximumNumberOfProcesses>, the results of applying the B<file> command to each file in and under the specified B<@folders>.
-
-89 L<countOccurencesInString|/countOccurencesInString> - Returns the number of occurrences in B<$inString> of B<$searchFor>.
-
-90 L<countSquareArray|/countSquareArray> - Count the number of elements in a square array
-
-91 L<createEmptyFile|/createEmptyFile> - Create an empty file unless the file already exists and return the name of the file else confess if the file cannot be created.
-
-92 L<currentDirectory|/currentDirectory> - Get the current working directory.
-
-93 L<currentDirectoryAbove|/currentDirectoryAbove> - Get the path to the folder above the current working folder.
-
-94 L<cutOutImagesInFodtFile|/cutOutImagesInFodtFile> - Cut out the images embedded in a B<fodt> file, perhaps produced via L<convertDocxToFodt|/convertDocxToFodt>, placing them in the specified folder and replacing them in the source file with:
+88 L<cutOutImagesInFodtFile|/cutOutImagesInFodtFile> - Cut out the images embedded in a B<fodt> file, perhaps produced via L<convertDocxToFodt|/convertDocxToFodt>, placing them in the specified folder and replacing them in the source file with:
 
   <image href="$imageFile" outputclass="imageType">.
 
-95 L<Data::Exchange::Service::check|/Data::Exchange::Service::check> - Check that we are the current incarnation of the named service with details obtained from L<newServiceIncarnation|/newServiceIncarnation>.
+89 L<Data::Exchange::Service::check|/Data::Exchange::Service::check> - Check that we are the current incarnation of the named service with details obtained from L<newServiceIncarnation|/newServiceIncarnation>.
 
-96 L<Data::Table::Text::Starter::averageProcessTime|/Data::Table::Text::Starter::averageProcessTime> - Average elapsed time spent by each process
+90 L<Data::Table::Text::Starter::averageProcessTime|/Data::Table::Text::Starter::averageProcessTime> - Average elapsed time spent by each process.
 
-97 L<Data::Table::Text::Starter::finish|/Data::Table::Text::Starter::finish> - Wait for all started processes to finish and return their results as an array.
+91 L<Data::Table::Text::Starter::finish|/Data::Table::Text::Starter::finish> - Wait for all started processes to finish and return their results as an array.
 
-98 L<Data::Table::Text::Starter::logEntry|/Data::Table::Text::Starter::logEntry> - Create a log entry showing progress and eta.
+92 L<Data::Table::Text::Starter::logEntry|/Data::Table::Text::Starter::logEntry> - Create a log entry showing progress and eta.
 
-99 L<Data::Table::Text::Starter::say|/Data::Table::Text::Starter::say> - Write to the log file if it is available.
+93 L<Data::Table::Text::Starter::say|/Data::Table::Text::Starter::say> - Write to the log file if it is available.
 
-100 L<Data::Table::Text::Starter::start|/Data::Table::Text::Starter::start> - Start a new process to run the specified B<$sub>.
+94 L<Data::Table::Text::Starter::start|/Data::Table::Text::Starter::start> - Start a new process to run the specified B<$sub>.
 
-101 L<Data::Table::Text::Starter::waitOne|/Data::Table::Text::Starter::waitOne> - Wait for at least one process to finish and consolidate its results.
+95 L<Data::Table::Text::Starter::waitOne|/Data::Table::Text::Starter::waitOne> - Wait for at least one process to finish and consolidate its results.
 
-102 L<dateStamp|/dateStamp> - Year-monthName-day
+96 L<dateStamp|/dateStamp> - Year-monthName-day.
 
-103 L<dateTimeStamp|/dateTimeStamp> - Year-monthNumber-day at hours:minute:seconds
+97 L<dateTimeStamp|/dateTimeStamp> - Year-monthNumber-day at hours:minute:seconds.
 
-104 L<dateTimeStampName|/dateTimeStampName> - Date time stamp without white space.
+98 L<dateTimeStampName|/dateTimeStampName> - Date time stamp without white space.
 
-105 L<ddd|/ddd> - Dump data
+99 L<ddd|/ddd> - Dump data.
 
-106 L<decodeBase64|/decodeBase64> - Decode an L<Ascii|https://en.wikipedia.org/wiki/ASCII> B<$string> in base 64.
+100 L<decodeBase64|/decodeBase64> - Decode an L<Ascii|https://en.wikipedia.org/wiki/ASCII> B<$string> in base 64.
 
-107 L<decodeJson|/decodeJson> - Convert a L<Json|https://en.wikipedia.org/wiki/JSON> B<$string> to a L<Perl|http://www.perl.org/> data structure.
+101 L<decodeJson|/decodeJson> - Convert a L<Json|https://en.wikipedia.org/wiki/JSON> B<$string> to a L<Perl|http://www.perl.org/> data structure.
 
-108 L<deduplicateSequentialWordsInString|/deduplicateSequentialWordsInString> - Remove sequentially duplicate words in a string
+102 L<deduplicateSequentialWordsInString|/deduplicateSequentialWordsInString> - Remove sequentially duplicate words in a string.
 
-109 L<denormalizeFolderName|/denormalizeFolderName> - Remove any trailing folder separator from a folder name.
+103 L<denormalizeFolderName|/denormalizeFolderName> - Remove any trailing folder separator from a folder name.
 
-110 L<deSquareArray|/deSquareArray> - Create a one dimensional array from a two dimensional array of arrays
+104 L<deSquareArray|/deSquareArray> - Create a one dimensional array from a two dimensional array of arrays.
 
-111 L<detagString|/detagString> - Remove L<HTML|https://en.wikipedia.org/wiki/HTML> or L<Xml|https://en.wikipedia.org/wiki/XML> tags from a string
+105 L<detagString|/detagString> - Remove L<HTML|https://en.wikipedia.org/wiki/HTML> or L<Xml|https://en.wikipedia.org/wiki/XML> tags from a string.
 
-112 L<docUserFlags|/docUserFlags> - Generate documentation for a method by calling the extractDocumentationFlags method in the package being documented, passing it the flags for a method and the name of the method.
+106 L<divideCharactersIntoRanges|/divideCharactersIntoRanges> - Divide a string of characters into ranges.
 
-113 L<downloadGitHubPublicRepo|/downloadGitHubPublicRepo> - Get the contents of a public repo on GitHub and place them in a temporary folder whose name is returned to the caller or confess if no such repo exists.
+107 L<divideIntegersIntoRanges|/divideIntegersIntoRanges> - Divide an array of integers into ranges.
 
-114 L<downloadGitHubPublicRepoFile|/downloadGitHubPublicRepoFile> - Get the contents of a B<$user> B<$repo> B<$file> from  a public repo on GitHub and return them as a string.
+108 L<docUserFlags|/docUserFlags> - Generate documentation for a method by calling the extractDocumentationFlags method in the package being documented, passing it the flags for a method and the name of the method.
 
-115 L<dumpFile|/dumpFile> - Dump to a B<$file> the referenced data B<$structure>.
+109 L<downloadGitHubPublicRepo|/downloadGitHubPublicRepo> - Get the contents of a public repo on GitHub and place them in a temporary folder whose name is returned to the caller or confess if no such repo exists.
 
-116 L<dumpFileAsJson|/dumpFileAsJson> - Dump to a B<$file> the referenced data B<$structure> represented as L<Json|https://en.wikipedia.org/wiki/JSON> string.
+110 L<downloadGitHubPublicRepoFile|/downloadGitHubPublicRepoFile> - Get the contents of a B<$user> B<$repo> B<$file> from  a public repo on GitHub and return them as a string.
 
-117 L<dumpGZipFile|/dumpGZipFile> - Write to a B<$file> a data B<$structure> through L<gzip|https://en.wikipedia.org/wiki/Gzip>.
+111 L<dumpFile|/dumpFile> - Dump to a B<$file> the referenced data B<$structure>.
 
-118 L<dumpTempFile|/dumpTempFile> - Dump a data structure to a temporary file and return the name of the file created
+112 L<dumpFileAsJson|/dumpFileAsJson> - Dump to a B<$file> the referenced data B<$structure> represented as L<Json|https://en.wikipedia.org/wiki/JSON> string.
 
-119 L<dumpTempFileAsJson|/dumpTempFileAsJson> - Dump a data structure represented as L<Json|https://en.wikipedia.org/wiki/JSON> string to a temporary file and return the name of the file created.
+113 L<dumpGZipFile|/dumpGZipFile> - Write to a B<$file> a data B<$structure> through L<gzip|https://en.wikipedia.org/wiki/Gzip>.
 
-120 L<enclosedReversedString|/enclosedReversedString> - Convert alphanumerics in a string to enclosed reversed alphanumerics.
+114 L<dumpTempFile|/dumpTempFile> - Dump a data structure to a temporary file and return the name of the file created.
 
-121 L<enclosedReversedStringUndo|/enclosedReversedStringUndo> - Undo alphanumerics in a string to enclosed reversed alphanumerics.
+115 L<dumpTempFileAsJson|/dumpTempFileAsJson> - Dump a data structure represented as L<Json|https://en.wikipedia.org/wiki/JSON> string to a temporary file and return the name of the file created.
 
-122 L<enclosedString|/enclosedString> - Convert alphanumerics in a string to enclosed alphanumerics.
+116 L<enclosedReversedString|/enclosedReversedString> - Convert alphanumerics in a string to enclosed reversed alphanumerics.
 
-123 L<enclosedStringUndo|/enclosedStringUndo> - Undo alphanumerics in a string to enclosed alphanumerics.
+117 L<enclosedReversedStringUndo|/enclosedReversedStringUndo> - Undo alphanumerics in a string to enclosed reversed alphanumerics.
 
-124 L<encodeBase64|/encodeBase64> - Encode an L<Ascii|https://en.wikipedia.org/wiki/ASCII> B<$string> in base 64.
+118 L<enclosedString|/enclosedString> - Convert alphanumerics in a string to enclosed alphanumerics.
 
-125 L<encodeJson|/encodeJson> - Convert a L<Perl|http://www.perl.org/> data B<$structure> to a L<Json|https://en.wikipedia.org/wiki/JSON> string.
+119 L<enclosedStringUndo|/enclosedStringUndo> - Undo alphanumerics in a string to enclosed alphanumerics.
 
-126 L<evalFile|/evalFile> - Read a file containing L<Unicode|https://en.wikipedia.org/wiki/Unicode> content represented as L<utf8|https://en.wikipedia.org/wiki/UTF-8>, L<perlfunc/eval> the content, confess to any errors and then return any result with L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> methods to access each hash element.
+120 L<encodeBase64|/encodeBase64> - Encode an L<Ascii|https://en.wikipedia.org/wiki/ASCII> B<$string> in base 64.
 
-127 L<evalFileAsJson|/evalFileAsJson> - Read a B<$file> containing L<Json|https://en.wikipedia.org/wiki/JSON> and return the corresponding L<Perl|http://www.perl.org/> data structure.
+121 L<encodeJson|/encodeJson> - Convert a L<Perl|http://www.perl.org/> data B<$structure> to a L<Json|https://en.wikipedia.org/wiki/JSON> string.
 
-128 L<evalGZipFile|/evalGZipFile> - Read a file compressed with L<gzip|https://en.wikipedia.org/wiki/Gzip> containing L<Unicode|https://en.wikipedia.org/wiki/Unicode> content represented as L<utf8|https://en.wikipedia.org/wiki/UTF-8>, L<perlfunc/eval> the content, confess to any errors and then return any result with L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> methods to access each hash element.
+122 L<evalFile|/evalFile> - Read a file containing L<Unicode|https://en.wikipedia.org/wiki/Unicode> content represented as L<utf8|https://en.wikipedia.org/wiki/UTF-8>, L<perlfunc/eval> the content, confess to any errors and then return any result with L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> methods to access each hash element.
 
-129 L<execPerlOnRemote|/execPerlOnRemote> - Execute some Perl B<$code> on the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
+123 L<evalFileAsJson|/evalFileAsJson> - Read a B<$file> containing L<Json|https://en.wikipedia.org/wiki/JSON> and return the corresponding L<Perl|http://www.perl.org/> data structure.
 
-130 L<expandNewLinesInDocumentation|/expandNewLinesInDocumentation> - Expand new lines in documentation, specifically 
- for new line and 
+124 L<evalGZipFile|/evalGZipFile> - Read a file compressed with L<gzip|https://en.wikipedia.org/wiki/Gzip> containing L<Unicode|https://en.wikipedia.org/wiki/Unicode> content represented as L<utf8|https://en.wikipedia.org/wiki/UTF-8>, L<perlfunc/eval> the content, confess to any errors and then return any result with L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> methods to access each hash element.
+
+125 L<evalOrConfess|/evalOrConfess> - Evaluate some code successfully or confess as to why it failed to evaluate successfully.
+
+126 L<execPerlOnRemote|/execPerlOnRemote> - Execute some Perl B<$code> on the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
+
+127 L<expandNewLinesInDocumentation|/expandNewLinesInDocumentation> - Expand new lines in documentation, specifically
+ for new line and
 
  for two new lines.
 
-131 L<expandWellKnownUrlsInDitaFormat|/expandWellKnownUrlsInDitaFormat> - Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format L[url-name] in the L[Dita] B<xref>format.
+128 L<expandWellKnownUrlsInDitaFormat|/expandWellKnownUrlsInDitaFormat> - Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format L[url-name] in the L[Dita] B<xref>format.
 
-132 L<expandWellKnownUrlsInHtmlFormat|/expandWellKnownUrlsInHtmlFormat> - Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format L[url-name] using the html B<a> tag.
+129 L<expandWellKnownUrlsInHtmlFormat|/expandWellKnownUrlsInHtmlFormat> - Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format L[url-name] using the html B<a> tag.
 
-133 L<expandWellKnownUrlsInHtmlFromPerl|/expandWellKnownUrlsInHtmlFromPerl> - Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format L[url-name] using the html B<a> tag.
+130 L<expandWellKnownUrlsInHtmlFromPerl|/expandWellKnownUrlsInHtmlFromPerl> - Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format L[url-name] using the html B<a> tag.
 
-134 L<expandWellKnownUrlsInPerlFormat|/expandWellKnownUrlsInPerlFormat> - Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format LE<lt>url-nameE<gt> using the Perl POD syntax
+131 L<expandWellKnownUrlsInPerlFormat|/expandWellKnownUrlsInPerlFormat> - Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format LE<lt>url-nameE<gt> using the Perl POD syntax.
 
-135 L<expandWellKnownUrlsInPod2Html|/expandWellKnownUrlsInPod2Html> - Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format =begin html format
+132 L<expandWellKnownUrlsInPod2Html|/expandWellKnownUrlsInPod2Html> - Expand short L<url|https://en.wikipedia.org/wiki/URL> names found in a string in the format =begin html format.
 
-136 L<expandWellKnownWordsAsUrlsInHtmlFormat|/expandWellKnownWordsAsUrlsInHtmlFormat> - Expand words found in a string using the html B<a> tag to supply a definition of that word.
+133 L<expandWellKnownWordsAsUrlsInHtmlFormat|/expandWellKnownWordsAsUrlsInHtmlFormat> - Expand words found in a string using the html B<a> tag to supply a definition of that word.
 
-137 L<expandWellKnownWordsAsUrlsInMdFormat|/expandWellKnownWordsAsUrlsInMdFormat> - Expand words found in a string using the md url to supply a definition of that word.
+134 L<expandWellKnownWordsAsUrlsInMdFormat|/expandWellKnownWordsAsUrlsInMdFormat> - Expand words found in a string using the md url to supply a definition of that word.
 
-138 L<extractCodeBlock|/extractCodeBlock> - Extract the block of code delimited by B<$comment>, starting at qq($comment-begin), ending at qq($comment-end) from the named B<$file> else the current Perl program $0 and return it as a string or confess if this is not possible.
+135 L<expandWellKnownWordsInMarkDownFile|/expandWellKnownWordsInMarkDownFile> - Expand well known words in a mark down file
 
-139 L<extractPythonDocumentationFromFiles|/extractPythonDocumentationFromFiles> - Extract python documentation from the specified files
+136 L<extractCodeBlock|/extractCodeBlock> - Extract the block of code delimited by B<$comment>, starting at qq($comment-begin), ending at qq($comment-end) from the named B<$file> else the current Perl program $0 and return it as a string or confess if this is not possible.
 
-140 L<extractTest|/extractTest> - Remove example markers from test code.
+137 L<extractPythonDocumentationFromFiles|/extractPythonDocumentationFromFiles> - Extract python documentation from the specified files.
 
-141 L<fe|/fe> - Get the extension of a file name.
+138 L<extractTest|/extractTest> - Remove example markers from test code.
 
-142 L<fff|/fff> - Confess a message with a line position and a file that Geany will jump to if clicked on.
+139 L<fe|/fe> - Get the extension of a file name.
 
-143 L<fileInWindowsFormat|/fileInWindowsFormat> - Convert a unix B<$file> name to windows format
+140 L<fff|/fff> - Confess a message with a line position and a file that Geany will jump to if clicked on.
 
-144 L<fileLargestSize|/fileLargestSize> - Return the largest B<$file>.
+141 L<fileInWindowsFormat|/fileInWindowsFormat> - Convert a unix B<$file> name to windows format.
 
-145 L<fileList|/fileList> - Files that match a given search pattern interpreted by L<perlfunc/bsd_glob>.
+142 L<fileLargestSize|/fileLargestSize> - Return the largest B<$file>.
 
-146 L<fileMd5Sum|/fileMd5Sum> - Get the Md5 sum of the content of a B<$file>.
+143 L<fileList|/fileList> - Files that match a given search pattern interpreted by L<perlfunc/bsd_glob>.
 
-147 L<fileModTime|/fileModTime> - Get the modified time of a B<$file> as seconds since the epoch.
+144 L<fileMd5Sum|/fileMd5Sum> - Get the Md5 sum of the content of a B<$file>.
 
-148 L<fileOutOfDate|/fileOutOfDate> - Calls the specified sub B<$make> for each source file that is missing and then again against the B<$target> file if any of the B<@source> files were missing or the $target file is older than any of the @source files or if the target does not exist.
+145 L<fileModTime|/fileModTime> - Get the modified time of a B<$file> as seconds since the epoch.
 
-149 L<filePath|/filePath> - Create a file name from a list of  names.
+146 L<fileOutOfDate|/fileOutOfDate> - Calls the specified sub B<$make> for each source file that is missing and then again against the B<$target> file if any of the B<@source> files were missing or the $target file is older than any of the @source files or if the target does not exist.
 
-150 L<filePathDir|/filePathDir> - Create a folder name from a list of  names.
+147 L<filePath|/filePath> - Create a file name from a list of  names.
 
-151 L<filePathExt|/filePathExt> - Create a file name from a list of  names the last of which is assumed to be the extension of the file name.
+148 L<filePathDir|/filePathDir> - Create a folder name from a list of  names.
 
-152 L<filePathSeparatorChar|/filePathSeparatorChar> - File path separator
+149 L<filePathExt|/filePathExt> - Create a file name from a list of  names the last of which is assumed to be the extension of the file name.
 
-153 L<fileSize|/fileSize> - Get the size of a B<$file> in bytes.
+150 L<filePathSeparatorChar|/filePathSeparatorChar> - File path separator.
 
-154 L<findAllFilesAndFolders|/findAllFilesAndFolders> - Find all the files and folders under a folder.
+151 L<fileSize|/fileSize> - Get the size of a B<$file> in bytes.
 
-155 L<findDirs|/findDirs> - Find all the folders under a B<$folder> and optionally B<$filter> the selected folders with a regular expression.
+152 L<findAllFilesAndFolders|/findAllFilesAndFolders> - Find all the files and folders under a folder.
 
-156 L<findFiles|/findFiles> - Find all the files under a B<$folder> and optionally B<$filter> the selected files with a regular expression.
+153 L<findDirs|/findDirs> - Find all the folders under a B<$folder> and optionally B<$filter> the selected folders with a regular expression.
 
-157 L<findFileWithExtension|/findFileWithExtension> - Find the first file that exists with a path and name of B<$file> and an extension drawn from <@ext>.
+154 L<findFiles|/findFiles> - Find all the files under a B<$folder> and optionally B<$filter> the selected files with a regular expression.
 
-158 L<firstFileThatExists|/firstFileThatExists> - Returns the name of the first file from B<@files> that exists or B<undef> if none of the named @files exist.
+155 L<findFileWithExtension|/findFileWithExtension> - Find the first file that exists with a path and name of B<$file> and an extension drawn from <@ext>.
 
-159 L<firstNChars|/firstNChars> - First N characters of a string.
+156 L<firstFileThatExists|/firstFileThatExists> - Returns the name of the first file from B<@files> that exists or B<undef> if none of the named @files exist.
 
-160 L<flattenArrayAndHashValues|/flattenArrayAndHashValues> - Flatten an array of scalars, array and hash references to make an array of scalars by flattening the array references and hash values.
+157 L<firstNChars|/firstNChars> - First N characters of a string.
 
-161 L<fn|/fn> - Remove the path and extension from a file name.
+158 L<flattenArrayAndHashValues|/flattenArrayAndHashValues> - Flatten an array of scalars, array and hash references to make an array of scalars by flattening the array references and hash values.
 
-162 L<fne|/fne> - Remove the path from a file name.
+159 L<fn|/fn> - Remove the path and extension from a file name.
 
-163 L<folderSize|/folderSize> - Get the size of a B<$folder> in bytes.
+160 L<fne|/fne> - Remove the path from a file name.
 
-164 L<forEachKeyAndValue|/forEachKeyAndValue> - Iterate over a hash for each key and value
+161 L<folderSize|/folderSize> - Get the size of a B<$folder> in bytes.
 
-165 L<formatHtmlAndTextTables|/formatHtmlAndTextTables> - Create text and html versions of a tabular report
+162 L<forEachKeyAndValue|/forEachKeyAndValue> - Iterate over a hash for each key and value.
 
-166 L<formatHtmlAndTextTablesWaitPids|/formatHtmlAndTextTablesWaitPids> - Wait on all table formatting pids to complete
+163 L<formatHtmlAndTextTables|/formatHtmlAndTextTables> - Create text and html versions of a tabular report.
 
-167 L<formatHtmlTable|/formatHtmlTable> - Format an array of arrays of scalars as an html table using the  B<%options> described in L<formatTableCheckKeys>.
+164 L<formatHtmlAndTextTablesWaitPids|/formatHtmlAndTextTablesWaitPids> - Wait on all table formatting pids to complete.
 
-168 L<formatHtmlTablesIndex|/formatHtmlTablesIndex> - Create an index of html reports.
+165 L<formatHtmlTable|/formatHtmlTable> - Format an array of arrays of scalars as an html table using the  B<%options> described in L<formatTableCheckKeys>.
 
-169 L<formatSourcePodAsHtml|/formatSourcePodAsHtml> - Format the L<POD|https://perldoc.perl.org/perlpod.html> in the current source file as L<HTML|https://en.wikipedia.org/wiki/HTML>.
+166 L<formatHtmlTablesIndex|/formatHtmlTablesIndex> - Create an index of html reports.
 
-170 L<formatString|/formatString> - Format the specified B<$string> so it can be displayed in B<$width> columns.
+167 L<formatSourcePodAsHtml|/formatSourcePodAsHtml> - Format the L<POD|https://perldoc.perl.org/perlpod.html> in the current source file as L<HTML|https://en.wikipedia.org/wiki/HTML>.
 
-171 L<formatTable|/formatTable> - Format various B<$data> structures as a table with titles as specified by B<$columnTitles>: either a reference to an array of column titles or a string each line of which contains the column title as the first word with the rest of the line describing that column.
+168 L<formatString|/formatString> - Format the specified B<$string> so it can be displayed in B<$width> columns.
 
-172 L<formatTableA|/formatTableA> - Tabularize an array.
+169 L<formatTable|/formatTable> - Format various B<$data> structures as a table with titles as specified by B<$columnTitles>: either a reference to an array of column titles or a string each line of which contains the column title as the first word with the rest of the line describing that column.
 
-173 L<formatTableAA|/formatTableAA> - Tabularize an array of arrays.
+170 L<formatTableA|/formatTableA> - Tabularize an array.
 
-174 L<formatTableAH|/formatTableAH> - Tabularize an array of hashes.
+171 L<formatTableAA|/formatTableAA> - Tabularize an array of arrays.
 
-175 L<formatTableBasic|/formatTableBasic> - Tabularize an array of arrays of text.
+172 L<formatTableAH|/formatTableAH> - Tabularize an array of hashes.
 
-176 L<formatTableCheckKeys|/formatTableCheckKeys> - Options available for formatting tables
+173 L<formatTableBasic|/formatTableBasic> - Tabularize an array of arrays of text.
 
-177 L<formatTableClearUpLeft|/formatTableClearUpLeft> - Blank identical column values up and left
+174 L<formatTableCheckKeys|/formatTableCheckKeys> - Options available for formatting tables.
 
-178 L<formatTableH|/formatTableH> - Tabularize a hash.
+175 L<formatTableClearUpLeft|/formatTableClearUpLeft> - Blank identical column values up and left.
 
-179 L<formatTableHA|/formatTableHA> - Tabularize a hash of arrays.
+176 L<formatTableH|/formatTableH> - Tabularize a hash.
 
-180 L<formatTableHH|/formatTableHH> - Tabularize a hash of hashes.
+177 L<formatTableHA|/formatTableHA> - Tabularize a hash of arrays.
 
-181 L<formatTableMultiLine|/formatTableMultiLine> - Tabularize text that has new lines in it.
+178 L<formatTableHH|/formatTableHH> - Tabularize a hash of hashes.
 
-182 L<formattedTablesReport|/formattedTablesReport> - Report of all the reports created.
+179 L<formatTableMultiLine|/formatTableMultiLine> - Tabularize text that has new lines in it.
 
-183 L<fp|/fp> - Get the path from a file name.
+180 L<formattedTablesReport|/formattedTablesReport> - Report of all the reports created.
 
-184 L<fpn|/fpn> - Remove the extension from a file name.
+181 L<fp|/fp> - Get the path from a file name.
 
-185 L<fullFileName|/fullFileName> - Full name of a file.
+182 L<fpn|/fpn> - Remove the extension from a file name.
 
-186 L<fullyQualifiedFile|/fullyQualifiedFile> - Check whether a B<$file> name is fully qualified or not and, optionally, whether it is fully qualified with a specified B<$prefix> or not.
+183 L<fullFileName|/fullFileName> - Full name of a file.
 
-187 L<fullyQualifyFile|/fullyQualifyFile> - Return the fully qualified name of a file.
+184 L<fullyQualifiedFile|/fullyQualifiedFile> - Check whether a B<$file> name is fully qualified or not and, optionally, whether it is fully qualified with a specified B<$prefix> or not.
 
-188 L<genHash|/genHash> - Return a B<$bless>ed hash with the specified B<$attributes> accessible via L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> method calls.
+185 L<fullyQualifyFile|/fullyQualifyFile> - Return the fully qualified name of a file.
 
-189 L<genLValueArrayMethods|/genLValueArrayMethods> - Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> array methods in the current package.
+186 L<genHash|/genHash> - Return a B<$bless>ed hash with the specified B<$attributes> accessible via L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> method calls.
 
-190 L<genLValueHashMethods|/genLValueHashMethods> - Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> hash methods in the current package.
+187 L<genLValueArrayMethods|/genLValueArrayMethods> - Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> array methods in the current package.
 
-191 L<genLValueScalarMethods|/genLValueScalarMethods> - Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> scalar methods in the current package, A method whose value has not yet been set will return a new scalar with value B<undef>.
+188 L<genLValueHashMethods|/genLValueHashMethods> - Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> hash methods in the current package.
 
-192 L<genLValueScalarMethodsWithDefaultValues|/genLValueScalarMethodsWithDefaultValues> - Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> scalar methods with default values in the current package.
+189 L<genLValueScalarMethods|/genLValueScalarMethods> - Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> scalar methods in the current package, A method whose value has not yet been set will return a new scalar with value B<undef>.
 
-193 L<getCodeContext|/getCodeContext> - Recreate the code context for a referenced sub
+190 L<genLValueScalarMethodsWithDefaultValues|/genLValueScalarMethodsWithDefaultValues> - Generate L<lvalue method|http://perldoc.perl.org/perlsub.html#Lvalue-subroutines> scalar methods with default values in the current package.
 
-194 L<getNumberOfCpus|/getNumberOfCpus> - Number of cpus
+191 L<getCCompiler|/getCCompiler> - Return the name of the C compiler on this system.
 
-195 L<getSubName|/getSubName> - Returns the (package, name, file, line) of a perl B<$sub> reference.
+192 L<getCodeContext|/getCodeContext> - Recreate the code context for a referenced sub.
 
-196 L<guidFromMd5|/guidFromMd5> - Create a guid from an md5 hash.
+193 L<getFieldOffsetInStructureFromIncludeFile|/getFieldOffsetInStructureFromIncludeFile> - Get the offset of a field in a system structures from an include file.
 
-197 L<guidFromString|/guidFromString> - Create a guid representation of the L<MD5 sum|https://en.wikipedia.org/wiki/MD5> of the content of a string.
+194 L<getNumberOfCpus|/getNumberOfCpus> - Number of cpus.
 
-198 L<hashifyFolderStructure|/hashifyFolderStructure> - Hashify a list of file names to get the corresponding folder structure.
+195 L<getStructureSizeFromIncludeFile|/getStructureSizeFromIncludeFile> - Get the size of a system structure from an include file.
 
-199 L<hexToAsciiString|/hexToAsciiString> - Decode a string of L<hexadecimal|https://en.wikipedia.org/wiki/Hexadecimal> digits as an L<Ascii|https://en.wikipedia.org/wiki/ASCII> string.
+196 L<getSubName|/getSubName> - Returns the (package, name, file, line) of a perl B<$sub> reference.
 
-200 L<hostName|/hostName> - The name of the host we are running on.
+197 L<getSystemConstantsFromIncludeFile|/getSystemConstantsFromIncludeFile> - Get the value of the named system constants from an include file.
 
-201 L<htmlToc|/htmlToc> - Generate a table of contents for some html.
+198 L<guidFromMd5|/guidFromMd5> - Create a guid from an md5 hash.
 
-202 L<imageSize|/imageSize> - Return (width, height) of an B<$image>.
+199 L<guidFromString|/guidFromString> - Create a guid representation of the L<MD5|https://en.wikipedia.org/wiki/MD5> of the content of a string.
 
-203 L<indentString|/indentString> - Indent lines contained in a string or formatted table by the specified string.
+200 L<hashifyFolderStructure|/hashifyFolderStructure> - Hashify a list of file names to get the corresponding folder structure.
 
-204 L<indexOfMax|/indexOfMax> - Find the index of the maximum number in a list of numbers confessing to any ill defined values.
+201 L<hexToAsciiString|/hexToAsciiString> - Decode a string of L<hexadecimal|https://en.wikipedia.org/wiki/Hexadecimal> digits as an L<Ascii|https://en.wikipedia.org/wiki/ASCII> string.
 
-205 L<indexOfMin|/indexOfMin> - Find the index of the minimum number in a list of numbers confessing to any ill defined values.
+202 L<hostName|/hostName> - The name of the host we are running on.
 
-206 L<intersectionOfHashesAsArrays|/intersectionOfHashesAsArrays> - Form the intersection of the specified hashes B<@h> as one hash whose values are an array of corresponding values from each hash
+203 L<htmlToc|/htmlToc> - Generate a table of contents for some html.
 
-207 L<intersectionOfHashKeys|/intersectionOfHashKeys> - Form the intersection of the keys of the specified hashes B<@h> as one hash whose keys represent the intersection.
+204 L<imageSize|/imageSize> - Return (width, height) of an B<$image>.
 
-208 L<invertHashOfHashes|/invertHashOfHashes> - Invert a hash of hashes: given {a}{b} = c return {b}{c} = c
+205 L<includeFiles|/includeFiles> - Read the given file and expand all lines that start "includeThisFile " with the file named by the rest of the line and keep doing this until all the included files have been expanded or a repetition is detected.
 
-209 L<ipAddressOfHost|/ipAddressOfHost> - Get the first ip address of the specified host via Domain Name Services
+206 L<indentString|/indentString> - Indent lines contained in a string or formatted table by the specified string.
 
-210 L<ipAddressViaArp|/ipAddressViaArp> - Get the ip address of a server on the local network by hostname via arp
+207 L<indexOfMax|/indexOfMax> - Find the index of the maximum number in a list of numbers confessing to any ill defined values.
 
-211 L<isBlank|/isBlank> - Test whether a string is blank.
+208 L<indexOfMin|/indexOfMin> - Find the index of the minimum number in a list of numbers confessing to any ill defined values.
 
-212 L<isFileUtf8|/isFileUtf8> - Return the file name quoted if its contents are in utf8 else return undef
+209 L<intersectionOfHashesAsArrays|/intersectionOfHashesAsArrays> - Form the intersection of the specified hashes B<@h> as one hash whose values are an array of corresponding values from each hash.
 
-213 L<isSubInPackage|/isSubInPackage> - Test whether the specified B<$package> contains the subroutine <$sub>.
+210 L<intersectionOfHashKeys|/intersectionOfHashKeys> - Form the intersection of the keys of the specified hashes B<@h> as one hash whose keys represent the intersection.
 
-214 L<javaPackage|/javaPackage> - Extract the package name from a java string or file.
+211 L<invertHashOfHashes|/invertHashOfHashes> - Invert a hash of hashes: given {a}{b} = c return {b}{c} = c.
 
-215 L<javaPackageAsFileName|/javaPackageAsFileName> - Extract the package name from a java string or file and convert it to a file name.
+212 L<ipAddressOfHost|/ipAddressOfHost> - Get the first ip address of the specified host via Domain Name Services.
 
-216 L<javaScriptExports|/javaScriptExports> - Extract the Javascript functions marked for export in a file or string.
+213 L<ipAddressViaArp|/ipAddressViaArp> - Get the ip address of a server on the local network by hostname via arp.
 
-217 L<keyCount|/keyCount> - Count keys down to the specified level.
+214 L<isBlank|/isBlank> - Test whether a string is blank.
 
-218 L<lengthOfLongestSubArray|/lengthOfLongestSubArray> - Given an array of arrays find the length of the longest sub array.
+215 L<isFileUtf8|/isFileUtf8> - Return the file name quoted if its contents are in utf8 else return undef.
 
-219 L<lll|/lll> - Log messages with a time stamp and originating file and line number.
+216 L<isSubInPackage|/isSubInPackage> - Test whether the specified B<$package> contains the subroutine <$sub>.
 
-220 L<loadArrayArrayFromLines|/loadArrayArrayFromLines> - Load an array of arrays from lines of text: each line is an array of words.
+217 L<javaPackage|/javaPackage> - Extract the package name from a java string or file.
 
-221 L<loadArrayFromLines|/loadArrayFromLines> - Load an array from lines of text in a string.
+218 L<javaPackageAsFileName|/javaPackageAsFileName> - Extract the package name from a java string or file and convert it to a file name.
 
-222 L<loadArrayHashFromLines|/loadArrayHashFromLines> - Load an array of hashes from lines of text: each line is a hash of words.
+219 L<javaScriptExports|/javaScriptExports> - Extract the Javascript functions marked for export in a file or string.
 
-223 L<loadHash|/loadHash> - Load the specified blessed B<$hash> generated with L<genHash|/genHash> with B<%attributes>.
+220 L<keyCount|/keyCount> - Count keys down to the specified level.
 
-224 L<loadHashArrayFromLines|/loadHashArrayFromLines> - Load a hash of arrays from lines of text: the first word of each line is the key, the remaining words are the array contents.
+221 L<lengthOfLongestSubArray|/lengthOfLongestSubArray> - Given an array of arrays find the length of the longest sub array.
 
-225 L<loadHashFromLines|/loadHashFromLines> - Load a hash: first word of each line is the key and the rest is the value.
+222 L<lll|/lll> - Log messages with a time stamp and originating file and line number.
 
-226 L<loadHashHashFromLines|/loadHashHashFromLines> - Load a hash of hashes from lines of text: the first word of each line is the key, the remaining words are the sub hash contents.
+223 L<loadArrayArrayFromLines|/loadArrayArrayFromLines> - Load an array of arrays from lines of text: each line is an array of words.
 
-227 L<lpad|/lpad> - Left Pad the specified B<$string> to a multiple of the specified B<$length>  with blanks or the specified padding character to a multiple of a specified length.
+224 L<loadArrayFromLines|/loadArrayFromLines> - Load an array from lines of text in a string.
 
-228 L<makeDieConfess|/makeDieConfess> - Force die to confess where the death occurred
+225 L<loadArrayHashFromLines|/loadArrayHashFromLines> - Load an array of hashes from lines of text: each line is a hash of words.
 
-229 L<makePath|/makePath> - Make the path for the specified file name or folder on the local machine.
+226 L<loadHash|/loadHash> - Load the specified blessed B<$hash> generated with L<genHash|/genHash> with B<%attributes>.
 
-230 L<makePathRemote|/makePathRemote> - Make the path for the specified B<$file> or folder on the L<Amazon Web Services|http://aws.amazon.com> instance whose ip address is specified by B<$ip> or returned by L<awsIp>.
+227 L<loadHashArrayFromLines|/loadHashArrayFromLines> - Load a hash of arrays from lines of text: the first word of each line is the key, the remaining words are the array contents.
 
-231 L<matchPath|/matchPath> - Return the deepest folder that exists along a given file name path.
+228 L<loadHashFromLines|/loadHashFromLines> - Load a hash: first word of each line is the key and the rest is the value.
 
-232 L<mathematicalBoldItalicString|/mathematicalBoldItalicString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Bold Italic.
+229 L<loadHashHashFromLines|/loadHashHashFromLines> - Load a hash of hashes from lines of text: the first word of each line is the key, the remaining words are the sub hash contents.
 
-233 L<mathematicalBoldItalicStringUndo|/mathematicalBoldItalicStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Bold Italic.
+230 L<lpad|/lpad> - Left Pad the specified B<$string> to a multiple of the specified B<$length>  with blanks or the specified padding character to a multiple of a specified length.
 
-234 L<mathematicalBoldString|/mathematicalBoldString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Bold.
+231 L<makeDieConfess|/makeDieConfess> - Force die to confess where the death occurred.
 
-235 L<mathematicalBoldStringUndo|/mathematicalBoldStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Bold.
+232 L<makePath|/makePath> - Make the path for the specified file name or folder on the local machine.
 
-236 L<mathematicalItalicString|/mathematicalItalicString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Italic.
+233 L<makePathRemote|/makePathRemote> - Make the path for the specified B<$file> or folder on the L<Amazon Web Services|http://aws.amazon.com> instance whose ip address is specified by B<$ip> or returned by L<awsIp>.
 
-237 L<mathematicalMonoSpaceString|/mathematicalMonoSpaceString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical MonoSpace.
+234 L<matchPath|/matchPath> - Return the deepest folder that exists along a given file name path.
 
-238 L<mathematicalMonoSpaceStringUndo|/mathematicalMonoSpaceStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical MonoSpace.
+235 L<mathematicalBoldItalicString|/mathematicalBoldItalicString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Bold Italic.
 
-239 L<mathematicalSansSerifBoldItalicString|/mathematicalSansSerifBoldItalicString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Bold Italic.
+236 L<mathematicalBoldItalicStringUndo|/mathematicalBoldItalicStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Bold Italic.
 
-240 L<mathematicalSansSerifBoldItalicStringUndo|/mathematicalSansSerifBoldItalicStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Bold Italic.
+237 L<mathematicalBoldString|/mathematicalBoldString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Bold.
 
-241 L<mathematicalSansSerifBoldString|/mathematicalSansSerifBoldString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Bold.
+238 L<mathematicalBoldStringUndo|/mathematicalBoldStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Bold.
 
-242 L<mathematicalSansSerifBoldStringUndo|/mathematicalSansSerifBoldStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Bold.
+239 L<mathematicalItalicString|/mathematicalItalicString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Italic.
 
-243 L<mathematicalSansSerifItalicString|/mathematicalSansSerifItalicString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Italic.
+240 L<mathematicalMonoSpaceString|/mathematicalMonoSpaceString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical MonoSpace.
 
-244 L<mathematicalSansSerifItalicStringUndo|/mathematicalSansSerifItalicStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Italic.
+241 L<mathematicalMonoSpaceStringUndo|/mathematicalMonoSpaceStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical MonoSpace.
 
-245 L<mathematicalSansSerifString|/mathematicalSansSerifString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif.
+242 L<mathematicalSansSerifBoldItalicString|/mathematicalSansSerifBoldItalicString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Bold Italic.
 
-246 L<mathematicalSansSerifStringUndo|/mathematicalSansSerifStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif.
+243 L<mathematicalSansSerifBoldItalicStringUndo|/mathematicalSansSerifBoldItalicStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Bold Italic.
 
-247 L<max|/max> - Find the maximum number in a list of numbers confessing to any ill defined values.
+244 L<mathematicalSansSerifBoldString|/mathematicalSansSerifBoldString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Bold.
 
-248 L<maximumLineLength|/maximumLineLength> - Find the longest line in a B<$string>.
+245 L<mathematicalSansSerifBoldStringUndo|/mathematicalSansSerifBoldStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Bold.
 
-249 L<md5FromGuid|/md5FromGuid> - Recover an md5 sum from a guid.
+246 L<mathematicalSansSerifItalicString|/mathematicalSansSerifItalicString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Italic.
 
-250 L<mergeFolder|/mergeFolder> - Copy the B<$source> folder into the B<$target> folder retaining any existing files not replaced by copied files.
+247 L<mathematicalSansSerifItalicStringUndo|/mathematicalSansSerifItalicStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif Italic.
 
-251 L<mergeFolderFromRemote|/mergeFolderFromRemote> - Merge the specified B<$Source> folder from the corresponding remote folder on the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
+248 L<mathematicalSansSerifString|/mathematicalSansSerifString> - Convert alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif.
 
-252 L<mergeHashesBySummingValues|/mergeHashesBySummingValues> - Merge a list of hashes B<@h> by summing their values
+249 L<mathematicalSansSerifStringUndo|/mathematicalSansSerifStringUndo> - Undo alphanumerics in a string to L<Unicode|https://en.wikipedia.org/wiki/Unicode> Mathematical Sans Serif.
 
-253 L<microSecondsSinceEpoch|/microSecondsSinceEpoch> - Micro seconds since unix epoch.
+250 L<max|/max> - Find the maximum number in a list of numbers confessing to any ill defined values.
 
-254 L<min|/min> - Find the minimum number in a list of numbers confessing to any ill defined values.
+251 L<maximumLineLength|/maximumLineLength> - Find the longest line in a B<$string>.
 
-255 L<mmm|/mmm> - Log messages with a differential time in milliseconds and originating file and line number.
+252 L<md5FromGuid|/md5FromGuid> - Recover an md5 sum from a guid.
 
-256 L<moveFileNoClobber|/moveFileNoClobber> - Rename the B<$source> file, which must exist, to the B<$target> file but only if the $target file does not exist already.
+253 L<mergeFolder|/mergeFolder> - Copy the B<$source> folder into the B<$target> folder retaining any existing files not replaced by copied files.
 
-257 L<moveFileWithClobber|/moveFileWithClobber> - Rename the B<$source> file, which must exist, to the B<$target> file but only if the $target file does not exist already.
+254 L<mergeFolderFromRemote|/mergeFolderFromRemote> - Merge the specified B<$Source> folder from the corresponding remote folder on the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
 
-258 L<nameFromFolder|/nameFromFolder> - Create a name from the last folder in the path of a file name.
+255 L<mergeHashesBySummingValues|/mergeHashesBySummingValues> - Merge a list of hashes B<@h> by summing their values.
 
-259 L<nameFromString|/nameFromString> - Create a readable name from an arbitrary string of text.
+256 L<microSecondsSinceEpoch|/microSecondsSinceEpoch> - Micro seconds since unix epoch.
 
-260 L<nameFromStringRestrictedToTitle|/nameFromStringRestrictedToTitle> - Create a readable name from a string of text that might contain a title tag - fall back to L<nameFromString|/nameFromString> if that is not possible.
+257 L<min|/min> - Find the minimum number in a list of numbers confessing to any ill defined values.
 
-261 L<newProcessStarter|/newProcessStarter> - Create a new L<process starter|/Data::Table::Text::Starter Definition> with which to start parallel processes up to a specified B<$maximumNumberOfProcesses> maximum number of parallel processes at a time, wait for all the started processes to finish and then optionally retrieve their saved results as an array from the folder named by B<$transferArea>.
+258 L<mmm|/mmm> - Log messages with a differential time in milliseconds and originating file and line number.
 
-262 L<newServiceIncarnation|/newServiceIncarnation> - Create a new service incarnation to record the start up of a new instance of a service and return the description as a L<Data::Exchange::Service Definition hash|/Data::Exchange::Service Definition>.
+259 L<moveFileNoClobber|/moveFileNoClobber> - Rename the B<$source> file, which must exist, to the B<$target> file but only if the $target file does not exist already.
 
-263 L<newUdsr|/newUdsr> - Create a communicator - a means to communicate between processes on the same machine via L<Udsr::read|/Udsr::read> and L<Udsr::write|/Udsr::write>.
+260 L<moveFileWithClobber|/moveFileWithClobber> - Rename the B<$source> file, which must exist, to the B<$target> file but only if the $target file does not exist already.
 
-264 L<newUdsrClient|/newUdsrClient> - Create a new communications client - a means to communicate between processes on the same machine via L<Udsr::read|/Udsr::read> and L<Udsr::write|/Udsr::write>.
+261 L<nameFromFolder|/nameFromFolder> - Create a name from the last folder in the path of a file name.
 
-265 L<newUdsrServer|/newUdsrServer> - Create a communications server - a means to communicate between processes on the same machine via L<Udsr::read|/Udsr::read> and L<Udsr::write|/Udsr::write>.
+262 L<nameFromString|/nameFromString> - Create a readable name from an arbitrary string of text.
 
-266 L<numberOfCpus|/numberOfCpus> - Number of cpus scaled by an optional factor - but only if you have nproc.
+263 L<nameFromStringRestrictedToTitle|/nameFromStringRestrictedToTitle> - Create a readable name from a string of text that might contain a title tag - fall back to L<nameFromString|/nameFromString> if that is not possible.
 
-267 L<numberOfLinesInFile|/numberOfLinesInFile> - Return the number of lines in a file.
+264 L<newProcessStarter|/newProcessStarter> - Create a new L<process starter|/Data::Table::Text::Starter Definition> with which to start parallel processes up to a specified B<$maximumNumberOfProcesses> maximum number of parallel processes at a time, wait for all the started processes to finish and then optionally retrieve their saved results as an array from the folder named by B<$transferArea>.
 
-268 L<numberOfLinesInString|/numberOfLinesInString> - The number of lines in a string.
+265 L<newServiceIncarnation|/newServiceIncarnation> - Create a new service incarnation to record the start up of a new instance of a service and return the description as a L<Data::Exchange::Service Definition hash|/Data::Exchange::Service Definition>.
 
-269 L<nws|/nws> - Normalize white space in a string to make comparisons easier.
+266 L<newUdsr|/newUdsr> - Create a communicator - a means to communicate between processes on the same machine via L<Udsr::read|/Udsr::read> and L<Udsr::write|/Udsr::write>.
 
-270 L<onAws|/onAws> - Returns 1 if we are on AWS else return 0.
+267 L<newUdsrClient|/newUdsrClient> - Create a new communications client - a means to communicate between processes on the same machine via L<Udsr::read|/Udsr::read> and L<Udsr::write|/Udsr::write>.
 
-271 L<onAwsPrimary|/onAwsPrimary> - Return 1 if we are on L<Amazon Web Services|http://aws.amazon.com> and we are on the primary session instance as defined by L<awsParallelPrimaryInstanceId>, return 0 if we are on a secondary session instance, else return B<undef> if we are not on L<Amazon Web Services|http://aws.amazon.com>.
+268 L<newUdsrServer|/newUdsrServer> - Create a communications server - a means to communicate between processes on the same machine via L<Udsr::read|/Udsr::read> and L<Udsr::write|/Udsr::write>.
 
-272 L<onAwsSecondary|/onAwsSecondary> - Return 1 if we are on L<Amazon Web Services|http://aws.amazon.com> but we are not on the primary session instance as defined by L<awsParallelPrimaryInstanceId>, return 0 if we are on the primary session instance, else return B<undef> if we are not on L<Amazon Web Services|http://aws.amazon.com>.
+269 L<numberOfCpus|/numberOfCpus> - Number of cpus scaled by an optional factor - but only if you have nproc.
 
-273 L<onMac|/onMac> - Are we on mac
+270 L<numberOfLinesInFile|/numberOfLinesInFile> - Return the number of lines in a file.
 
-274 L<onWindows|/onWindows> - Are we on windows
+271 L<numberOfLinesInString|/numberOfLinesInString> - The number of lines in a string.
 
-275 L<overrideAndReabsorbMethods|/overrideAndReabsorbMethods> - Override methods down the list of B<@packages> then reabsorb any unused methods back up the list of packages so that all the packages have the same methods as the last package with methods from packages mentioned earlier overriding methods from packages mentioned later.
+272 L<numberWithCommas|/numberWithCommas> - Place commas in a number.
 
-276 L<overrideMethods|/overrideMethods> - For each method, if it exists in package B<$from> then export it to package B<$to> replacing any existing method in B<$to>, otherwise export the method from package B<$to> to package B<$from> in order to merge the behavior of the B<$from> and B<$to> packages with respect to the named methods with duplicates resolved if favour of package B<$from>.
+273 L<nws|/nws> - Normalize white space in a string to make comparisons easier.
 
-277 L<overWriteBinaryFile|/overWriteBinaryFile> - Write to B<$file>, after creating a path to the file with L<makePath> if necessary, the binary content in B<$string>.
+274 L<onAws|/onAws> - Returns 1 if we are on AWS else return 0.
 
-278 L<overWriteFile|/overWriteFile> - Write to a B<$file>, after creating a path to the $file with L<makePath> if necessary, a B<$string> of L<Unicode|https://en.wikipedia.org/wiki/Unicode> content encoded as L<utf8|https://en.wikipedia.org/wiki/UTF-8>.
+275 L<onAwsPrimary|/onAwsPrimary> - Return 1 if we are on L<Amazon Web Services|http://aws.amazon.com> and we are on the primary session instance as defined by L<awsParallelPrimaryInstanceId>, return 0 if we are on a secondary session instance, else return B<undef> if we are not on L<Amazon Web Services|http://aws.amazon.com>.
 
-279 L<overWriteHtmlFile|/overWriteHtmlFile> - Write an L<HTML|https://en.wikipedia.org/wiki/HTML> file to /var/www/html and make it readable
+276 L<onAwsSecondary|/onAwsSecondary> - Return 1 if we are on L<Amazon Web Services|http://aws.amazon.com> but we are not on the primary session instance as defined by L<awsParallelPrimaryInstanceId>, return 0 if we are on the primary session instance, else return B<undef> if we are not on L<Amazon Web Services|http://aws.amazon.com>.
 
-280 L<overWritePerlCgiFile|/overWritePerlCgiFile> - Write a L<Perl|http://www.perl.org/> file to /usr/lib/cgi-bin and make it executable after checking it for syntax errors
+277 L<onMac|/onMac> - Are we on mac.
 
-281 L<packBySize|/packBySize> - Given B<$N> buckets and a list B<@sizes> of ([size of file, name of file].
+278 L<onWindows|/onWindows> - Are we on windows.
 
-282 L<pad|/pad> - Pad the specified B<$string> to a multiple of the specified B<$length>  with blanks or the specified padding character to a multiple of a specified length.
+279 L<overrideAndReabsorbMethods|/overrideAndReabsorbMethods> - Override methods down the list of B<@packages> then reabsorb any unused methods back up the list of packages so that all the packages have the same methods as the last package with methods from packages mentioned earlier overriding methods from packages mentioned later.
 
-283 L<parseCommandLineArguments|/parseCommandLineArguments> - Call the specified B<$sub> after classifying the specified array of [arguments] in B<$args> into positional and keyword parameters.
+280 L<overrideMethods|/overrideMethods> - For each method, if it exists in package B<$from> then export it to package B<$to> replacing any existing method in B<$to>, otherwise export the method from package B<$to> to package B<$from> in order to merge the behavior of the B<$from> and B<$to> packages with respect to the named methods with duplicates resolved if favour of package B<$from>.
 
-284 L<parseDitaRef|/parseDitaRef> - Parse a dita reference B<$ref> into its components (file name, topic id, id) .
+281 L<overWriteBinaryFile|/overWriteBinaryFile> - Write to B<$file>, after creating a path to the file with L<makePath> if necessary, the binary content in B<$string>.
 
-285 L<parseFileName|/parseFileName> - Parse a file name into (path, name, extension) considering .
+282 L<overWriteFile|/overWriteFile> - Write to a B<$file>, after creating a path to the $file with L<makePath> if necessary, a B<$string> of L<Unicode|https://en.wikipedia.org/wiki/Unicode> content encoded as L<utf8|https://en.wikipedia.org/wiki/UTF-8>.
 
-286 L<parseIntoWordsAndStrings|/parseIntoWordsAndStrings> - Parse a B<$string> into words and quoted strings.
+283 L<overWriteHtmlFile|/overWriteHtmlFile> - Write an L<HTML|https://en.wikipedia.org/wiki/HTML> file to /var/www/html and make it readable.
 
-287 L<parseS3BucketAndFolderName|/parseS3BucketAndFolderName> - Parse an L<S3|https://aws.amazon.com/s3/> bucket/folder name into a bucket and a folder name removing any initial s3://.
+284 L<overWritePerlCgiFile|/overWritePerlCgiFile> - Write a L<Perl|http://www.perl.org/> file to /usr/lib/cgi-bin and make it executable after checking it for syntax errors.
 
-288 L<parseXmlDocType|/parseXmlDocType> - Parse an L<Xml|https://en.wikipedia.org/wiki/XML> DOCTYPE and return a hash indicating its components
+285 L<packBySize|/packBySize> - Given B<$N> buckets and a list B<@sizes> of ([size of file, name of file].
 
-289 L<partitionStringsOnPrefixBySize|/partitionStringsOnPrefixBySize> - Partition a hash of strings and associated sizes into partitions with either a maximum size B<$maxSize> or only one element; the hash B<%Sizes> consisting of a mapping {string=>size}; with each partition being named with the shortest string prefix that identifies just the strings in that partition.
+286 L<pad|/pad> - Pad the specified B<$string> to a multiple of the specified B<$length>  with blanks or the specified padding character to a multiple of a specified length.
 
-290 L<perlPackage|/perlPackage> - Extract the package name from a perl string or file.
+287 L<parseCommandLineArguments|/parseCommandLineArguments> - Call the specified B<$sub> after classifying the specified array of [arguments] in B<$args> into positional and keyword parameters.
 
-291 L<powerOfTwo|/powerOfTwo> - Test whether a number B<$n> is a power of two, return the power if it is else B<undef>.
+288 L<parseDitaRef|/parseDitaRef> - Parse a dita reference B<$ref> into its components (file name, topic id, id) .
 
-292 L<ppp|/ppp> - Pad the specified B<$string> to a multiple of the specified B<$length>  with blanks or the specified padding character to a multiple of a specified length.
+289 L<parseFileName|/parseFileName> - Parse a file name into (path, name, extension) considering .
 
-293 L<prefferedFileName|/prefferedFileName> - Normalize a file name
+290 L<parseIntoWordsAndStrings|/parseIntoWordsAndStrings> - Parse a B<$string> into words and quoted strings.
 
-294 L<printQw|/printQw> - Print an array of words in qw() format.
+291 L<parseS3BucketAndFolderName|/parseS3BucketAndFolderName> - Parse an L<S3|https://aws.amazon.com/s3/> bucket/folder name into a bucket and a folder name removing any initial s3://.
 
-295 L<processFilesInParallel|/processFilesInParallel> - Process files in parallel using (8 * the number of CPUs) processes with the process each file is assigned to depending on the size of the file so that each process is loaded with approximately the same number of bytes of data in total from the files it processes.
+292 L<parseXmlDocType|/parseXmlDocType> - Parse an L<Xml|https://en.wikipedia.org/wiki/XML> DOCTYPE and return a hash indicating its components.
 
-296 L<processJavaFilesInParallel|/processJavaFilesInParallel> - Process java files of known size in parallel using (the number of CPUs) processes with the process each item is assigned to depending on the size of the java item so that each process is loaded with approximately the same number of bytes of data in total from the java files it processes.
+293 L<partitionStringsOnPrefixBySize|/partitionStringsOnPrefixBySize> - Partition a hash of strings and associated sizes into partitions with either a maximum size B<$maxSize> or only one element; the hash B<%Sizes> consisting of a mapping {string=>size}; with each partition being named with the shortest string prefix that identifies just the strings in that partition.
 
-297 L<processSizesInParallel|/processSizesInParallel> - Process items of known size in parallel using (8 * the number of CPUs) processes with the process each item is assigned to depending on the size of the item so that each process is loaded with approximately the same number of bytes of data in total from the items it processes.
+294 L<perlPackage|/perlPackage> - Extract the package name from a perl string or file.
 
-298 L<processSizesInParallelN|/processSizesInParallelN> - Process items of known size in parallel using the specified number B<$N> processes with the process each file is assigned to depending on the size of the file so that each process is loaded with approximately the same number of bytes of data in total from the files it processes.
+295 L<powerOfTwo|/powerOfTwo> - Test whether a number B<$n> is a power of two, return the power if it is else B<undef>.
 
-299 L<quoteFile|/quoteFile> - Quote a file name.
+296 L<ppp|/ppp> - Pad the specified B<$string> to a multiple of the specified B<$length>  with blanks or the specified padding character to a multiple of a specified length.
 
-300 L<randomizeArray|/randomizeArray> - Randomize an array
+297 L<prefferedFileName|/prefferedFileName> - Normalize a file name.
 
-301 L<readBinaryFile|/readBinaryFile> - Read a binary file on the local machine.
+298 L<printQw|/printQw> - Print an array of words in qw() format.
 
-302 L<readFile|/readFile> - Return the content of a file residing on the local machine interpreting the content of the file as L<utf8|https://en.wikipedia.org/wiki/UTF-8>.
+299 L<processFilesInParallel|/processFilesInParallel> - Process files in parallel using (8 * the number of CPUs) processes with the process each file is assigned to depending on the size of the file so that each process is loaded with approximately the same number of bytes of data in total from the files it processes.
 
-303 L<readFileFromRemote|/readFileFromRemote> - Copy and read a B<$file> from the remote machine whose ip address is specified by B<$ip> or returned by L<awsIp> and return the content of $file interpreted as utf8 .
+300 L<processJavaFilesInParallel|/processJavaFilesInParallel> - Process java files of known size in parallel using (the number of CPUs) processes with the process each item is assigned to depending on the size of the java item so that each process is loaded with approximately the same number of bytes of data in total from the java files it processes.
 
-304 L<readFiles|/readFiles> - Read all the files in the specified list of folders into a hash.
+301 L<processSizesInParallel|/processSizesInParallel> - Process items of known size in parallel using (8 * the number of CPUs) processes with the process each item is assigned to depending on the size of the item so that each process is loaded with approximately the same number of bytes of data in total from the items it processes.
 
-305 L<readGZipFile|/readGZipFile> - Read the specified file containing compressed L<Unicode|https://en.wikipedia.org/wiki/Unicode> content represented as L<utf8|https://en.wikipedia.org/wiki/UTF-8> through L<gzip|https://en.wikipedia.org/wiki/Gzip>.
+302 L<processSizesInParallelN|/processSizesInParallelN> - Process items of known size in parallel using the specified number B<$N> processes with the process each file is assigned to depending on the size of the file so that each process is loaded with approximately the same number of bytes of data in total from the files it processes.
 
-306 L<readStdIn|/readStdIn> - Return the contents of STDIN and return the results as either an array or a string.
+303 L<quoteFile|/quoteFile> - Quote a file name.
 
-307 L<readUtf16File|/readUtf16File> - Read a file containing L<Unicode|https://en.wikipedia.org/wiki/Unicode> encoded in utf-16.
+304 L<randomizeArray|/randomizeArray> - Randomize an array.
 
-308 L<rectangularArray|/rectangularArray> - Create a two dimensional rectangular array whose first dimension is B<$first> from a one dimensional linear array.
+305 L<readBinaryFile|/readBinaryFile> - Read a binary file on the local machine.
 
-309 L<rectangularArray2|/rectangularArray2> - Create a two dimensional rectangular array whose second dimension is B<$second> from a one dimensional linear array.
+306 L<readFile|/readFile> - Return the content of a file residing on the local machine interpreting the content of the file as L<utf8|https://en.wikipedia.org/wiki/UTF-8>.
 
-310 L<reinstateWellKnown|/reinstateWellKnown> - Contract references to well known Urls to their abbreviated form
+307 L<readFileFromRemote|/readFileFromRemote> - Copy and read a B<$file> from the remote machine whose ip address is specified by B<$ip> or returned by L<awsIp> and return the content of $file interpreted as utf8 .
 
-311 L<relFromAbsAgainstAbs|/relFromAbsAgainstAbs> - Relative file from one absolute file B<$a> against another B<$b>.
+308 L<readFiles|/readFiles> - Read all the files in the specified list of folders into a hash.
 
-312 L<reloadHashes|/reloadHashes> - Ensures that all the hashes within a tower of data structures have LValue methods to get and set their current keys.
+309 L<readGZipFile|/readGZipFile> - Read the specified file containing compressed L<Unicode|https://en.wikipedia.org/wiki/Unicode> content represented as L<utf8|https://en.wikipedia.org/wiki/UTF-8> through L<gzip|https://en.wikipedia.org/wiki/Gzip>.
 
-313 L<reloadHashes2|/reloadHashes2> - Ensures that all the hashes within a tower of data structures have LValue methods to get and set their current keys.
+310 L<readStdIn|/readStdIn> - Return the contents of STDIN and return the results as either an array or a string.
 
-314 L<removeDuplicatePrefixes|/removeDuplicatePrefixes> - Remove duplicated leading directory names from a file name.
+311 L<readUtf16File|/readUtf16File> - Read a file containing L<Unicode|https://en.wikipedia.org/wiki/Unicode> encoded in utf-16.
 
-315 L<removeFilePathsFromStructure|/removeFilePathsFromStructure> - Remove all file paths from a specified B<$structure> to make said $structure testable with L<Test::More/is_deeply>.
+312 L<rectangularArray|/rectangularArray> - Create a two dimensional rectangular array whose first dimension is B<$first> from a one dimensional linear array.
 
-316 L<removeFilePrefix|/removeFilePrefix> - Removes a file B<$prefix> from an array of B<@files>.
+313 L<rectangularArray2|/rectangularArray2> - Create a two dimensional rectangular array whose second dimension is B<$second> from a one dimensional linear array.
 
-317 L<renormalizeFolderName|/renormalizeFolderName> - Normalize a folder name by ensuring it has a single trailing directory separator.
+314 L<reinstateWellKnown|/reinstateWellKnown> - Contract references to well known Urls to their abbreviated form.
 
-318 L<replaceStringWithString|/replaceStringWithString> - Replace all instances in B<$string> of B<$source> with B<$target>
+315 L<relFromAbsAgainstAbs|/relFromAbsAgainstAbs> - Relative file from one absolute file B<$a> against another B<$b>.
 
-319 L<reportAttributes|/reportAttributes> - Report the attributes present in a B<$sourceFile>
+316 L<reloadHashes|/reloadHashes> - Ensures that all the hashes within a tower of data structures have LValue methods to get and set their current keys.
 
-320 L<reportAttributeSettings|/reportAttributeSettings> - Report the current values of the attribute methods in the calling file and optionally write the report to B<$reportFile>.
+317 L<reloadHashes2|/reloadHashes2> - Ensures that all the hashes within a tower of data structures have LValue methods to get and set their current keys.
 
-321 L<reportExportableMethods|/reportExportableMethods> - Report the exportable methods marked with #e in a B<$sourceFile>
+318 L<removeDuplicatePrefixes|/removeDuplicatePrefixes> - Remove duplicated leading directory names from a file name.
 
-322 L<reportReplacableMethods|/reportReplacableMethods> - Report the replaceable methods marked with #r in a B<$sourceFile>
+319 L<removeFilePathsFromStructure|/removeFilePathsFromStructure> - Remove all file paths from a specified B<$structure> to make said $structure testable with L<Test::More/is_deeply>.
 
-323 L<reportSettings|/reportSettings> - Report the current values of parameterless subs.
+320 L<removeFilePrefix|/removeFilePrefix> - Removes a file B<$prefix> from an array of B<@files>.
 
-324 L<retrieveFile|/retrieveFile> - Retrieve a B<$file> created via L<Storable|https://metacpan.org/pod/Storable>.
+321 L<renormalizeFolderName|/renormalizeFolderName> - Normalize a folder name by ensuring it has a single trailing directory separator.
 
-325 L<runInParallel|/runInParallel> - Process the elements of an array in parallel using a maximum of B<$maximumNumberOfProcesses> processes.
+322 L<replaceStringWithString|/replaceStringWithString> - Replace all instances in B<$string> of B<$source> with B<$target>.
 
-326 L<runInSquareRootParallel|/runInSquareRootParallel> - Process the elements of an array in square root parallel using a maximum of B<$maximumNumberOfProcesses> processes.
+323 L<reportAttributes|/reportAttributes> - Report the attributes present in a B<$sourceFile>.
 
-327 L<s3Delete|/s3Delete> - Return an S3 --delete keyword from an S3 option set
+324 L<reportAttributeSettings|/reportAttributeSettings> - Report the current values of the attribute methods in the calling file and optionally write the report to B<$reportFile>.
 
-328 L<s3DownloadFolder|/s3DownloadFolder> - Download a specified B<$folder> on S3 to a B<$local> folder using the specified B<%options> if any.
+325 L<reportExportableMethods|/reportExportableMethods> - Report the exportable methods marked with #e in a B<$sourceFile>.
 
-329 L<s3FileExists|/s3FileExists> - Return (name, size, date, time) for a B<$file> that exists on S3 else () using the specified B<%options> if any.
+326 L<reportReplacableMethods|/reportReplacableMethods> - Report the replaceable methods marked with #r in a B<$sourceFile>.
 
-330 L<s3ListFilesAndSizes|/s3ListFilesAndSizes> - Return {file=>size} for all the files in a specified B<$folderOrFile> on S3 using the specified B<%options> if any.
+327 L<reportSettings|/reportSettings> - Report the current values of parameterless subs.
 
-331 L<s3Profile|/s3Profile> - Return an S3 profile keyword from an S3 option set
+328 L<retrieveFile|/retrieveFile> - Retrieve a B<$file> created via L<Storable|https://metacpan.org/pod/Storable>.
 
-332 L<s3ReadFile|/s3ReadFile> - Read from a B<$file> on S3 and write the contents to a local file B<$local> using the specified B<%options> if any.
+329 L<runInParallel|/runInParallel> - Process the elements of an array in parallel using a maximum of B<$maximumNumberOfProcesses> processes.
 
-333 L<s3ReadString|/s3ReadString> - Read from a B<$file> on S3 and return the contents as a string using specified B<%options> if any.
+330 L<runInSquareRootParallel|/runInSquareRootParallel> - Process the elements of an array in square root parallel using a maximum of B<$maximumNumberOfProcesses> processes.
 
-334 L<s3WriteFile|/s3WriteFile> - Write to a file B<$fileS3> on S3 the contents of a local file B<$fileLocal> using the specified B<%options> if any.
+331 L<s3Delete|/s3Delete> - Return an S3 --delete keyword from an S3 option set.
 
-335 L<s3WriteString|/s3WriteString> - Write to a B<$file> on S3 the contents of B<$string> using the specified B<%options> if any.
+332 L<s3DownloadFolder|/s3DownloadFolder> - Download a specified B<$folder> on S3 to a B<$local> folder using the specified B<%options> if any.
 
-336 L<s3ZipFolder|/s3ZipFolder> - Zip the specified B<$source> folder and write it to the named B<$target> file on S3.
+333 L<s3FileExists|/s3FileExists> - Return (name, size, date, time) for a B<$file> that exists on S3 else () using the specified B<%options> if any.
 
-337 L<s3ZipFolders|/s3ZipFolders> - Zip local folders and upload them to S3 in parallel.
+334 L<s3ListFilesAndSizes|/s3ListFilesAndSizes> - Return {file=>size} for all the files in a specified B<$folderOrFile> on S3 using the specified B<%options> if any.
 
-338 L<saveAwsDomain|/saveAwsDomain> - Make the server at L<Amazon Web Services|http://aws.amazon.com> with the given domain name the default primary server as used by all the methods whose names end in B<r> or B<Remote>.
+335 L<s3Profile|/s3Profile> - Return an S3 profile keyword from an S3 option set.
 
-339 L<saveAwsIp|/saveAwsIp> - Make the server at L<Amazon Web Services|http://aws.amazon.com> with the given IP address the default primary server as used by all the methods whose names end in B<r> or B<Remote>.
+336 L<s3ReadFile|/s3ReadFile> - Read from a B<$file> on S3 and write the contents to a local file B<$local> using the specified B<%options> if any.
 
-340 L<saveCodeToS3|/saveCodeToS3> - Save source code every B<$saveCodeEvery> seconds by zipping folder B<$folder> to zip file B<$zipFileName> then saving this zip file in the specified L<S3|https://aws.amazon.com/s3/> B<$bucket> using any additional L<S3|https://aws.amazon.com/s3/> parameters in B<$S3Parms>.
+337 L<s3ReadString|/s3ReadString> - Read from a B<$file> on S3 and return the contents as a string using specified B<%options> if any.
 
-341 L<saveSourceToS3|/saveSourceToS3> - Save source code.
+338 L<s3WriteFile|/s3WriteFile> - Write to a file B<$fileS3> on S3 the contents of a local file B<$fileLocal> using the specified B<%options> if any.
 
-342 L<searchDirectoryTreeForSubFolders|/searchDirectoryTreeForSubFolders> - Search the specified directory under the specified folder for sub folders
+339 L<s3WriteString|/s3WriteString> - Write to a B<$file> on S3 the contents of B<$string> using the specified B<%options> if any.
 
-343 L<searchDirectoryTreesForMatchingFiles|/searchDirectoryTreesForMatchingFiles> - Search the specified directory trees for the files (not folders) that match the specified extensions.
+340 L<s3ZipFolder|/s3ZipFolder> - Zip the specified B<$source> folder and write it to the named B<$target> file on S3.
 
-344 L<setCombination|/setCombination> - Count the elements in sets B<@s> represented as arrays of strings and/or the keys of hashes
+341 L<s3ZipFolders|/s3ZipFolders> - Zip local folders and upload them to S3 in parallel.
 
-345 L<setFileExtension|/setFileExtension> - Given a B<$file>, change its extension to B<$extension>.
+342 L<saveAwsDomain|/saveAwsDomain> - Make the server at L<Amazon Web Services|http://aws.amazon.com> with the given domain name the default primary server as used by all the methods whose names end in B<r> or B<Remote>.
 
-346 L<setIntersection|/setIntersection> - Intersection of sets B<@s> represented as arrays of strings and/or the keys of hashes
+343 L<saveAwsIp|/saveAwsIp> - Make the server at L<Amazon Web Services|http://aws.amazon.com> with the given IP address the default primary server as used by all the methods whose names end in B<r> or B<Remote>.
 
-347 L<setIntersectionOverUnion|/setIntersectionOverUnion> - Returns the size of the intersection over the size of the union of one or more sets B<@s> represented as arrays and/or hashes
+344 L<saveCodeToS3|/saveCodeToS3> - Save source code every B<$saveCodeEvery> seconds by zipping folder B<$folder> to zip file B<$zipFileName> then saving this zip file in the specified L<S3|https://aws.amazon.com/s3/> B<$bucket> using any additional L<S3|https://aws.amazon.com/s3/> parameters in B<$S3Parms>.
 
-348 L<setPackageSearchOrder|/setPackageSearchOrder> - Set a package search order for methods requested in the current package via AUTOLOAD.
+345 L<saveSourceToS3|/saveSourceToS3> - Save source code.
 
-349 L<setPartitionOnIntersectionOverUnion|/setPartitionOnIntersectionOverUnion> - Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets in the partition is never less than the specified level of I<$confidence**2>
+346 L<searchDirectoryTreeForSubFolders|/searchDirectoryTreeForSubFolders> - Search the specified directory under the specified folder for sub folders.
 
-350 L<setPartitionOnIntersectionOverUnionOfHashStringSets|/setPartitionOnIntersectionOverUnionOfHashStringSets> - Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<$hashSet> represented by a hash, each hash value being a string containing words and punctuation, each word possibly capitalized, so that within each partition the L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> of any two sets of words in the partition is never less than the specified B<$confidence**2> and the partition entries are the hash keys of the string sets.
+347 L<searchDirectoryTreesForMatchingFiles|/searchDirectoryTreesForMatchingFiles> - Search the specified directory trees for the files (not folders) that match the specified extensions.
 
-351 L<setPartitionOnIntersectionOverUnionOfHashStringSetsInParallel|/setPartitionOnIntersectionOverUnionOfHashStringSetsInParallel> - Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<$hashSet> represented by a hash, each hash value being a string containing words and punctuation, each word possibly capitalized, so that within each partition the L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> of any two sets of words in the partition is never less than the specified B<$confidence**2> and the partition entries are the hash keys of the string sets.
+348 L<setCombination|/setCombination> - Count the elements in sets B<@s> represented as arrays of strings and/or the keys of hashes.
 
-352 L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> - Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> of words so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets of words in the partition is never less than the specified I<$confidence**2>
+349 L<setFileExtension|/setFileExtension> - Given a B<$file>, change its extension to B<$extension>.
 
-353 L<setPartitionOnIntersectionOverUnionOfStringSets|/setPartitionOnIntersectionOverUnionOfStringSets> - Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@strings>, each set represented by a string containing words and punctuation, each word possibly capitalized, so that within each partition the L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> of any two sets of words in the partition is never less than the specified I<$confidence**2>
+350 L<setIntersection|/setIntersection> - Intersection of sets B<@s> represented as arrays of strings and/or the keys of hashes.
 
-354 L<setPermissionsForFile|/setPermissionsForFile> - Apply L<chmod|https://linux.die.net/man/1/chmod> to a B<$file> to set its B<$permissions>.
+351 L<setIntersectionOverUnion|/setIntersectionOverUnion> - Returns the size of the intersection over the size of the union of one or more sets B<@s> represented as arrays and/or hashes.
 
-355 L<setUnion|/setUnion> - Union of sets B<@s> represented as arrays of strings and/or the keys of hashes
+352 L<setPackageSearchOrder|/setPackageSearchOrder> - Set a package search order for methods requested in the current package via AUTOLOAD.
 
-356 L<showGotVersusWanted|/showGotVersusWanted> - Show the difference between the wanted string and the wanted string
+353 L<setPartitionOnIntersectionOverUnion|/setPartitionOnIntersectionOverUnion> - Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets in the partition is never less than the specified level of I<$confidence**2>.
 
-357 L<showHashes|/showHashes> - Create a map of all the keys within all the hashes within a tower of data structures.
+354 L<setPartitionOnIntersectionOverUnionOfHashStringSets|/setPartitionOnIntersectionOverUnionOfHashStringSets> - Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<$hashSet> represented by a hash, each hash value being a string containing words and punctuation, each word possibly capitalized, so that within each partition the L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> of any two sets of words in the partition is never less than the specified B<$confidence**2> and the partition entries are the hash keys of the string sets.
 
-358 L<showHashes2|/showHashes2> - Create a map of all the keys within all the hashes within a tower of data structures.
+355 L<setPartitionOnIntersectionOverUnionOfHashStringSetsInParallel|/setPartitionOnIntersectionOverUnionOfHashStringSetsInParallel> - Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<$hashSet> represented by a hash, each hash value being a string containing words and punctuation, each word possibly capitalized, so that within each partition the L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> of any two sets of words in the partition is never less than the specified B<$confidence**2> and the partition entries are the hash keys of the string sets.
 
-359 L<squareArray|/squareArray> - Create a two dimensional square array from a one dimensional linear array.
+356 L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> - Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@sets> of words so that within each partition the L<setIntersectionOverUnion|/setIntersectionOverUnion> of any two sets of words in the partition is never less than the specified I<$confidence**2>.
 
-360 L<startProcess|/startProcess> - Start new processes while the number of child processes recorded in B<%$pids> is less than the specified B<$maximum>.
+357 L<setPartitionOnIntersectionOverUnionOfStringSets|/setPartitionOnIntersectionOverUnionOfStringSets> - Partition, at a level of B<$confidence> between 0 and 1, a set of sets B<@strings>, each set represented by a string containing words and punctuation, each word possibly capitalized, so that within each partition the L<setPartitionOnIntersectionOverUnionOfSetsOfWords|/setPartitionOnIntersectionOverUnionOfSetsOfWords> of any two sets of words in the partition is never less than the specified I<$confidence**2>.
 
-361 L<storeFile|/storeFile> - Store into a B<$file>, after creating a path to the file with L<makePath> if necessary, a data B<$structure> via L<Storable|https://metacpan.org/pod/Storable>.
+358 L<setPermissionsForFile|/setPermissionsForFile> - Apply L<chmod|https://linux.die.net/man/1/chmod> to a B<$file> to set its B<$permissions>.
 
-362 L<stringMd5Sum|/stringMd5Sum> - Get the Md5 sum of a B<$string> that might contain L<utf8|https://en.wikipedia.org/wiki/UTF-8> code points.
+359 L<setUnion|/setUnion> - Union of sets B<@s> represented as arrays of strings and/or the keys of hashes.
 
-363 L<stringsAreNotEqual|/stringsAreNotEqual> - Return the common start followed by the two non equal tails of two non equal strings or an empty list if the strings are equal.
+360 L<showGotVersusWanted|/showGotVersusWanted> - Show the difference between the wanted string and the wanted string.
 
-364 L<subScriptString|/subScriptString> - Convert alphanumerics in a string to sub scripts
+361 L<showHashes|/showHashes> - Create a map of all the keys within all the hashes within a tower of data structures.
 
-365 L<subScriptStringUndo|/subScriptStringUndo> - Undo alphanumerics in a string to sub scripts
+362 L<showHashes2|/showHashes2> - Create a map of all the keys within all the hashes within a tower of data structures.
 
-366 L<sumAbsAndRel|/sumAbsAndRel> - Combine zero or more absolute and relative names of B<@files> starting at the current working folder to get an absolute file name.
+363 L<squareArray|/squareArray> - Create a two dimensional square array from a one dimensional linear array.
 
-367 L<summarizeColumn|/summarizeColumn> - Count the number of unique instances of each value a column in a table assumes.
+364 L<startProcess|/startProcess> - Start new processes while the number of child processes recorded in B<%$pids> is less than the specified B<$maximum>.
 
-368 L<superScriptString|/superScriptString> - Convert alphanumerics in a string to super scripts
+365 L<storeFile|/storeFile> - Store into a B<$file>, after creating a path to the file with L<makePath> if necessary, a data B<$structure> via L<Storable|https://metacpan.org/pod/Storable>.
 
-369 L<superScriptStringUndo|/superScriptStringUndo> - Undo alphanumerics in a string to super scripts
+366 L<stringMd5Sum|/stringMd5Sum> - Get the Md5 sum of a B<$string> that might contain L<utf8|https://en.wikipedia.org/wiki/UTF-8> code points.
 
-370 L<swapFilePrefix|/swapFilePrefix> - Swaps the start of a B<$file> name from a B<$known> name to a B<$new> one if the file does in fact start with the $known name otherwise returns the original file name as it is.
+367 L<stringsAreNotEqual|/stringsAreNotEqual> - Return the common start followed by the two non equal tails of two non equal strings or an empty list if the strings are equal.
 
-371 L<swapFolderPrefix|/swapFolderPrefix> - Given a B<$file>, swap the folder name of the $file from B<$known> to B<$new> if the file $file starts with the $known folder name else return the $file as it is.
+368 L<subNameTraceBack|/subNameTraceBack> - Find the names of the calling subroutines and return them as a blank separated string of names.
 
-372 L<syncFromS3InParallel|/syncFromS3InParallel> - Download from L<S3|https://aws.amazon.com/s3/> by using "aws s3 sync --exclude '*' --include '.
+369 L<subScriptString|/subScriptString> - Convert alphanumerics in a string to sub scripts.
 
-373 L<syncToS3InParallel|/syncToS3InParallel> - Upload to L<S3|https://aws.amazon.com/s3/> by using "aws s3 sync --exclude '*' --include '.
+370 L<subScriptStringUndo|/subScriptStringUndo> - Undo alphanumerics in a string to sub scripts.
 
-374 L<temporaryFile|/temporaryFile> - Create a new, empty, temporary file.
+371 L<sumAbsAndRel|/sumAbsAndRel> - Combine zero or more absolute and relative names of B<@files> starting at the current working folder to get an absolute file name.
 
-375 L<temporaryFolder|/temporaryFolder> - Create a new, empty, temporary folder.
+372 L<summarizeColumn|/summarizeColumn> - Count the number of unique instances of each value a column in a table assumes.
 
-376 L<timeStamp|/timeStamp> - hours:minute:seconds
+373 L<superScriptString|/superScriptString> - Convert alphanumerics in a string to super scripts.
 
-377 L<transitiveClosure|/transitiveClosure> - Transitive closure of a hash of hashes
+374 L<superScriptStringUndo|/superScriptStringUndo> - Undo alphanumerics in a string to super scripts.
 
-378 L<trim|/trim> - Remove any white space from the front and end of a string.
+375 L<swapFilePrefix|/swapFilePrefix> - Swaps the start of a B<$file> name from a B<$known> name to a B<$new> one if the file does in fact start with the $known name otherwise returns the original file name as it is.
 
-379 L<Udsr::kill|/Udsr::kill> - Kill a communications server.
+376 L<swapFolderPrefix|/swapFolderPrefix> - Given a B<$file>, swap the folder name of the $file from B<$known> to B<$new> if the file $file starts with the $known folder name else return the $file as it is.
 
-380 L<Udsr::read|/Udsr::read> - Read a message from the L<newUdsrServer|/newUdsrServer> or the L<newUdsrClient|/newUdsrClient>.
+377 L<syncFromS3InParallel|/syncFromS3InParallel> - Download from L<S3|https://aws.amazon.com/s3/> by using "aws s3 sync --exclude '*' --include '.
 
-381 L<Udsr::webUser|/Udsr::webUser> - Create a systemd installed server that processes http requests using a specified userid.
+378 L<syncToS3InParallel|/syncToS3InParallel> - Upload to L<S3|https://aws.amazon.com/s3/> by using "aws s3 sync --exclude '*' --include '.
 
-382 L<Udsr::write|/Udsr::write> - Write a communications message to the L<newUdsrServer|/newUdsrServer> or the L<newUdsrClient|/newUdsrClient>.
+379 L<temporaryFile|/temporaryFile> - Create a new, empty, temporary file.
 
-383 L<unbless|/unbless> - Remove the effects of bless from a L<Perl|http://www.perl.org/> data B<$structure> enabling it to be converted to L<Json|https://en.wikipedia.org/wiki/JSON> or compared with L<Test::More::is_deeply>.
+380 L<temporaryFolder|/temporaryFolder> - Create a new, empty, temporary folder.
 
-384 L<unionOfHashesAsArrays|/unionOfHashesAsArrays> - Form the union of the specified hashes B<@h> as one hash whose values are a array of corresponding values from each hash
+381 L<timeStamp|/timeStamp> - Hours:minute:seconds.
 
-385 L<unionOfHashKeys|/unionOfHashKeys> - Form the union of the keys of the specified hashes B<@h> as one hash whose keys represent the union.
+382 L<transitiveClosure|/transitiveClosure> - Transitive closure of a hash of hashes.
 
-386 L<uniqueNameFromFile|/uniqueNameFromFile> - Create a unique name from a file name and the md5 sum of its content
+383 L<trim|/trim> - Remove any white space from the front and end of a string.
 
-387 L<updateDocumentation|/updateDocumentation> - Update the documentation for a Perl module from the comments in its source code.
+384 L<Udsr::kill|/Udsr::kill> - Kill a communications server.
 
-388 L<updatePerlModuleDocumentation|/updatePerlModuleDocumentation> - Update the documentation in a B<$perlModule> and display said documentation in a web browser.
+385 L<Udsr::read|/Udsr::read> - Read a message from the L<newUdsrServer|/newUdsrServer> or the L<newUdsrClient|/newUdsrClient>.
 
-389 L<userId|/userId> - Get or confirm the userid we are currently running under.
+386 L<Udsr::webUser|/Udsr::webUser> - Create a systemd installed server that processes http requests using a specified userid.
 
-390 L<versionCode|/versionCode> - YYYYmmdd-HHMMSS
+387 L<Udsr::write|/Udsr::write> - Write a communications message to the L<newUdsrServer|/newUdsrServer> or the L<newUdsrClient|/newUdsrClient>.
 
-391 L<versionCodeDashed|/versionCodeDashed> - YYYY-mm-dd-HH:MM:SS
+388 L<unbless|/unbless> - Remove the effects of bless from a L<Perl|http://www.perl.org/> data B<$structure> enabling it to be converted to L<Json|https://en.wikipedia.org/wiki/JSON> or compared with L<Test::More::is_deeply>.
 
-392 L<waitForAllStartedProcessesToFinish|/waitForAllStartedProcessesToFinish> - Wait until all the processes started by L<startProcess|/startProcess> have finished.
+389 L<unionOfHashesAsArrays|/unionOfHashesAsArrays> - Form the union of the specified hashes B<@h> as one hash whose values are a array of corresponding values from each hash.
 
-393 L<wellKnownUrls|/wellKnownUrls> - Short names for some well known urls
+390 L<unionOfHashKeys|/unionOfHashKeys> - Form the union of the keys of the specified hashes B<@h> as one hash whose keys represent the union.
 
-394 L<writeBinaryFile|/writeBinaryFile> - Write to a new B<$file>, after creating a path to the file with L<makePath> if necessary, the binary content in B<$string>.
+391 L<uniqueNameFromFile|/uniqueNameFromFile> - Create a unique name from a file name and the md5 sum of its content.
 
-395 L<writeFile|/writeFile> - Write to a new B<$file>, after creating a path to the $file with L<makePath> if necessary, a B<$string> of L<Unicode|https://en.wikipedia.org/wiki/Unicode> content encoded as L<utf8|https://en.wikipedia.org/wiki/UTF-8>.
+392 L<updateDocumentation|/updateDocumentation> - Update the documentation for a Perl module from the comments in its source code.
 
-396 L<writeFiles|/writeFiles> - Write the values of a B<$hash> reference into files identified by the key of each value using L<overWriteFile|/overWriteFile> optionally swapping the prefix of each file from B<$old> to B<$new>.
+393 L<updatePerlModuleDocumentation|/updatePerlModuleDocumentation> - Update the documentation in a B<$perlModule> and display said documentation in a web browser.
 
-397 L<writeFileToRemote|/writeFileToRemote> - Write to a new B<$file>, after creating a path to the file with L<makePath> if necessary, a B<$string> of L<Unicode|https://en.wikipedia.org/wiki/Unicode> content encoded as L<utf8|https://en.wikipedia.org/wiki/UTF-8> then copy the $file to the remote server whose ip address is specified by B<$ip> or returned by L<awsIp>.
+394 L<userId|/userId> - Get or confirm the userid we are currently running under.
 
-398 L<writeGZipFile|/writeGZipFile> - Write to a B<$file>, after creating a path to the file with L<makePath> if necessary, through L<gzip|https://en.wikipedia.org/wiki/Gzip> a B<$string> whose content is encoded as L<utf8|https://en.wikipedia.org/wiki/UTF-8>.
+395 L<versionCode|/versionCode> - YYYYmmdd-HHMMSS.
 
-399 L<writeStructureTest|/writeStructureTest> - Write a test for a data B<$structure> with file names in it.
+396 L<versionCodeDashed|/versionCodeDashed> - YYYY-mm-dd-HH:MM:SS.
 
-400 L<writeTempFile|/writeTempFile> - Write an array of strings as lines to a temporary file and return the file name.
+397 L<waitForAllStartedProcessesToFinish|/waitForAllStartedProcessesToFinish> - Wait until all the processes started by L<startProcess|/startProcess> have finished.
 
-401 L<wwwDecode|/wwwDecode> - Percent decode a L<url|https://en.wikipedia.org/wiki/URL> B<$string> per: https://en.
+398 L<wellKnownUrls|/wellKnownUrls> - Short names for some well known urls.
 
-402 L<wwwEncode|/wwwEncode> - Percent encode a L<url|https://en.wikipedia.org/wiki/URL> per: https://en.
+399 L<writeBinaryFile|/writeBinaryFile> - Write to a new B<$file>, after creating a path to the file with L<makePath> if necessary, the binary content in B<$string>.
 
-403 L<wwwGitHubAuth|/wwwGitHubAuth> - Logon as a L<GitHub|https://github.com/philiprbrenan> L<Oauth|https://en.wikipedia.org/wiki/OAuth> app per: L<https://github.
+400 L<writeFile|/writeFile> - Write to a new B<$file>, after creating a path to the $file with L<makePath> if necessary, a B<$string> of L<Unicode|https://en.wikipedia.org/wiki/Unicode> content encoded as L<utf8|https://en.wikipedia.org/wiki/UTF-8>.
 
-404 L<xxx|/xxx> - Execute a shell command optionally checking its response.
+401 L<writeFiles|/writeFiles> - Write the values of a B<$hash> reference into files identified by the key of each value using L<overWriteFile|/overWriteFile> optionally swapping the prefix of each file from B<$old> to B<$new>.
 
-405 L<xxxr|/xxxr> - Execute a command B<$cmd> via bash on the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
+402 L<writeFileToRemote|/writeFileToRemote> - Write to a new B<$file>, after creating a path to the file with L<makePath> if necessary, a B<$string> of L<Unicode|https://en.wikipedia.org/wiki/Unicode> content encoded as L<utf8|https://en.wikipedia.org/wiki/UTF-8> then copy the $file to the remote server whose ip address is specified by B<$ip> or returned by L<awsIp>.
 
-406 L<yyy|/yyy> - Execute a block of shell commands line by line after removing comments - stop if there is a non zero return code from any command.
+403 L<writeGZipFile|/writeGZipFile> - Write to a B<$file>, after creating a path to the file with L<makePath> if necessary, through L<gzip|https://en.wikipedia.org/wiki/Gzip> a B<$string> whose content is encoded as L<utf8|https://en.wikipedia.org/wiki/UTF-8>.
 
-407 L<zzz|/zzz> - Execute lines of commands after replacing new lines with && then check that the pipeline execution results in a return code of zero and that the execution results match the optional regular expression if one has been supplied; confess() to an error if either check fails.
+404 L<writeStructureTest|/writeStructureTest> - Write a test for a data B<$structure> with file names in it.
+
+405 L<writeTempFile|/writeTempFile> - Write an array of strings as lines to a temporary file and return the file name.
+
+406 L<wwwDecode|/wwwDecode> - Percent decode a L<url|https://en.wikipedia.org/wiki/URL> B<$string> per: https://en.
+
+407 L<wwwEncode|/wwwEncode> - Percent encode a L<url|https://en.wikipedia.org/wiki/URL> per: https://en.
+
+408 L<wwwGitHubAuth|/wwwGitHubAuth> - Logon as a L<GitHub|https://github.com/philiprbrenan> L<Oauth|https://en.wikipedia.org/wiki/OAuth> app per: L<https://github.
+
+409 L<xxx|/xxx> - Execute a shell command optionally checking its response.
+
+410 L<xxxr|/xxxr> - Execute a command B<$cmd> via bash on the server whose ip address is specified by B<$ip> or returned by L<awsIp>.
+
+411 L<yyy|/yyy> - Execute a block of shell commands line by line after removing comments - stop if there is a non zero return code from any command.
+
+412 L<zzz|/zzz> - Execute lines of commands after replacing new lines with && then check that the pipeline execution results in a return code of zero and that the execution results match the optional regular expression if one has been supplied; confess() to an error if either check fails.
 
 =head1 Installation
 
@@ -20289,7 +20437,7 @@ Test::More->builder->output("/dev/null") if $localTest;                         
 
 if ($^V ge v5.26.0)                                                             # Supported versions
  {if ($^O =~ m(bsd|linux|darwin)i)                                              # Supported systems
-    {plan tests => 690
+    {plan tests => 709;
     }
   #lsif (onWindows) {plan tests    => 620}                                      # Somewhat supported systems
   else
@@ -20638,8 +20786,8 @@ if (1) {                                                                        
   Data::Table::Text::genLValueArrayMethods(qw(aa bb cc));                       #TgenLValueArrayMethods
   $a->aa->[1] = 'aa';                                                           #TgenLValueArrayMethods
   Test::More::ok $a->aa->[1] eq 'aa';                                           #TgenLValueArrayMethods
- }                                                                              #
-                                                                                #
+ }
+
 if (1) {                                                                        ## AM
   package Hashes;                                                               #TgenLValueHashMethods
   my $a = bless{};                                                              #TgenLValueHashMethods
@@ -20665,17 +20813,27 @@ ok trim(" a b ") eq join ' ', qw(a b);                                          
 ok isBlank("");                                                                 #TisBlank
 ok isBlank(" \n ");                                                             #TisBlank
 
-ok  powerOfTwo(1) == 0;                                                         #TpowerOfTwo
-ok  powerOfTwo(2) == 1;                                                         #TpowerOfTwo
-ok !powerOfTwo(3);                                                              #TpowerOfTwo
-ok  powerOfTwo(4) == 2;                                                         #TpowerOfTwo
 
-ok  containingPowerOfTwo(1) == 0;                                               #TcontainingPowerOfTwo
-ok  containingPowerOfTwo(2) == 1;                                               #TcontainingPowerOfTwo
-ok  containingPowerOfTwo(3) == 2;                                               #TcontainingPowerOfTwo
-ok  containingPowerOfTwo(4) == 2;                                               #TcontainingPowerOfTwo
-ok  containingPowerOfTwo(5) == 3;
-ok  containingPowerOfTwo(7) == 3;
+if (1) {                                                                        #TpowerOfTwo
+  ok  powerOfTwo(1) == 0;
+  ok  powerOfTwo(2) == 1;
+  ok !powerOfTwo(3);
+  ok  powerOfTwo(4) == 2;
+ }
+
+if (1) {                                                                        #TcontainingPowerOfTwo
+  ok containingPowerOfTwo(1) == 0;
+  ok containingPowerOfTwo(2) == 1;
+  ok containingPowerOfTwo(3) == 2;
+  ok containingPowerOfTwo(4) == 2;
+  ok containingPowerOfTwo(5) == 3;
+  ok containingPowerOfTwo(7) == 3;
+ }
+
+if (1) {                                                                        #TnumberWithCommas
+  is_deeply numberWithCommas(1),                 q(1);
+  is_deeply numberWithCommas(12345678), q(12,345,678);
+ }
 
 if (1) {                                                                        #Tpad #Tppp #Tlpad
   is_deeply pad('abc  ', 2).'='         , "abc =";
@@ -21843,8 +22001,8 @@ if (1)                                                                          
 #ok $@, "readFile";
 
 if (1)                                                                          #ToverWriteBinaryFile #TwriteBinaryFile #TcopyBinaryFile
- {vec(my $a, 0, 8) = 254;
-  vec(my $b, 0, 8) = 255;
+ {vec(my $a = '', 0, 8) = 254;
+  vec(my $b = '', 0, 8) = 255;
   ok dump($a) eq dump("\xFE");
   ok dump($b) eq dump("\xFF");
   ok length($a) == 1;
@@ -22305,11 +22463,11 @@ if (0) {                                                                        
   my $f = writeFile(undef, <<'END'.<<END2);
 #!perl -I/home/phil/perl/cpan/DataTableText/lib/
 use Data::Table::Text qw(reportAttributeSettings);
-sub attribute {1}                                                               # An attribute
-sub replaceable($)                                                              #r A replaceable method
+sub attribute {1}                                                               # An attribute.
+sub replaceable($)                                                              #r A replaceable method.
  {
  }
-sub exportable($)                                                               #e An exportable method
+sub exportable($)                                                               #e An exportable method.
  {
  }
 END
@@ -22723,7 +22881,7 @@ q( aa12!    a'b   "aa !! ++ bb"  '  ',      '"'  "'"  ""   ''.))  ],
 if (1)                                                                          #TparseXmlDocType
  {is_deeply parseXmlDocType(<<END),
 <!DOCTYPE reference PUBLIC "-//OASIS//DTD DITA Reference//EN" "reference.dtd">
-...
+.
 END
    {localDtd => "reference.dtd",
     public   => 1,
@@ -22732,9 +22890,9 @@ END
    };
 
   is_deeply parseXmlDocType(<<END),
-...
+.
 <!DOCTYPE concept PUBLIC "-//OASIS//DTD DITA Task//EN" "concept.dtd" []>
-...
+.
 )),
 END
      {localDtd => "concept.dtd",
@@ -23313,6 +23471,9 @@ if (1) {                                                                        
   ok cmpArrays([qw(a b)],   [qw(a b a)]) == -1;
   ok cmpArrays([qw(a b a)], [qw(a b)])   == +1;
   ok cmpArrays([qw(a b)],   [qw(a b)])   ==  0;
+  ok dump(compareArraysAndExplain([qw(a b c)], [qw(a B c)])) eq dump("Differs at index 1:\nb\nB\n");
+  ok dump(compareArraysAndExplain([qw(a b)],   [qw(a b c)])) eq dump("Second array has an additional line at index: 2\nc\n")
+  ;
  }
 
 if (1)                                                                          #TtransitiveClosure
@@ -23334,7 +23495,7 @@ if (1) {                                                                        
 
 if (1)                                                                          #TconvertPerlToJavaScript
  {my $i = writeTempFile(<<'END');
-sub test($$)                                                                    #P A test method
+sub test($$)                                                                    #P A test method.
  {my ($file, $data) = @_;                                                       # Parameter 1, parameter 2
   if (fullyQualifiedFile($file)) {return qq($data)}                             # File is already fully qualified
  } # test
@@ -23343,7 +23504,7 @@ END
   convertPerlToJavaScript($i, my $o = temporaryFile);
 
   ok readFile($o) eq <<'END';
-function test(file, data)                                                       //P A test method
+function test(file, data)                                                       //P A test method.
  {  if (fullyQualifiedFile(file)) {return `data`}                               // File is already fully qualified
  }                                                                              // test
 END
@@ -23382,7 +23543,87 @@ if (1) {                                                                        
   is_deeply convertUtf32ToUtf8(0x20ac),  0xe282ac;
   is_deeply convertUtf32ToUtf8(0xd55c),  0xed959c;
   is_deeply convertUtf32ToUtf8(0x10348), 0xf0908d88;
+
+  is_deeply convertUtf32ToUtf8LE(0x24),    0x24;                                #TconvertUtf32ToUtf8LE
+  is_deeply convertUtf32ToUtf8LE(0xa2),    0xa2c2;
+  is_deeply convertUtf32ToUtf8LE(0x939),   0xb9a4e0;
+  is_deeply convertUtf32ToUtf8LE(0x20ac),  0xac82e2;
+  is_deeply convertUtf32ToUtf8LE(0xd55c),  0x9c95ed;
+  is_deeply convertUtf32ToUtf8LE(0x10348), 0x888d90f0;
 };
+
+#latest:;
+if (1) {                                                                        #TevalOrConfess
+  ok evalOrConfess("1") == 1;
+  my $r = eval {evalOrConfess "++ ++"};
+  ok $@ =~ m(syntax error);
+ }
+
+#latest:;
+if (1) {                                                                        #TsubNameTraceBack
+  sub aaa
+   {&bbb;
+   }
+
+  sub bbb
+   {&ccc;
+   }
+
+  sub ccc
+   {subNameTraceBack;
+   }
+
+  ok aaa =~ s(Data::Table::Text::) ()gsr =~ m(\Accc bbb aaa);
+ }
+
+#latest:;
+is_deeply [divideIntegersIntoRanges   1, 3, 4, 5, 7, 8, 10], [[1], [3..5], [7..8], [10]];  #TdivideIntegersIntoRanges
+is_deeply [divideCharactersIntoRanges "jahiefcb"], [qw(abc ef hij)];                       #TdivideCharactersIntoRanges
+
+#latest:;
+if (0 and $^O !~ m(darwin)i and getCCompiler) {                                 # Supported systems
+
+if (1)                                                                          #TgetSystemConstantsFromIncludeFile
+ {my %c = (getSystemConstantsFromIncludeFile("linux/mman.h", qw(MAP_PRIVATE PROT_READ)),
+           getSystemConstantsFromIncludeFile("linux/mman.h", qw(MAP_PRIVATE PROT_WRITE)));
+
+  is_deeply \%c, { MAP_PRIVATE => 2, PROT_READ => 1, PROT_WRITE => 2 };
+ }
+
+#latest:;
+
+if (1)                                                                          #TgetFieldOffsetInStructureFromIncludeFile
+ {my $s = getStructureSizeFromIncludeFile("sys/stat.h", q(struct stat));
+  is_deeply $s, 144;
+ }
+
+#latest:;
+if (1)                                                                          #TgetStructureSizeFromIncludeFile
+ {my $o = getFieldOffsetInStructureFromIncludeFile("sys/stat.h", q(struct stat), q(st_size));
+  is_deeply $o, 48;
+ }
+}
+else {ok 1 for 1..3}
+
+#latest:;
+if (1)                                                                          #TincludeFiles
+ {my $d = temporaryFolder;
+  my $a = "$d/a.txt";
+  my $b = "$d/b.txt";
+  my %d = ($a => <<END,
+aaa
+includeThisFile $d/b.txt
+ccc
+END
+           $b => <<END,
+bbb
+END
+  );
+
+  writeFiles(\%d);
+  is_deeply [includeFiles($a)], ["aaa\n", "bbb\n", "ccc\n"];
+  unlink $a, $b;
+ }
 
 if ($localTest)
  {say STDERR "DTT finished in ", (time() - $timeStart), " seconds";
